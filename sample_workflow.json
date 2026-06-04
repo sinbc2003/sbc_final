@@ -1,0 +1,39 @@
+{
+  "id": "workflow_demo_001",
+  "name": "PDF → LLM 정리 → HWPX",
+  "version": "1.0.0",
+  "description": "PDF 문서를 읽고, LLM으로 내용을 정리하여, HWPX 파일로 저장",
+  "created_at": "2026-04-09T15:00:00",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "pdf_to_md",
+      "position": {"x": 100, "y": 200},
+      "params": {"pages": "전체"}
+    },
+    {
+      "id": "n2",
+      "type": "llm_generate",
+      "position": {"x": 400, "y": 200},
+      "params": {
+        "prompt_template": "다음 PDF 문서 내용을 읽고, 핵심 내용을 깔끔하게 정리하여 보고서 형식으로 작성하라.\n\n[원문]:\n{{입력텍스트}}\n\n[정리된 보고서]:",
+        "provider": "auto",
+        "max_tokens": 2048,
+        "temperature": 0.5
+      }
+    },
+    {
+      "id": "n3",
+      "type": "md_to_hwpx",
+      "position": {"x": 700, "y": 200},
+      "params": {
+        "output_name": "정리_결과"
+      }
+    }
+  ],
+  "edges": [
+    {"from": "n1", "from_port": "텍스트", "to": "n2", "to_port": "입력텍스트"},
+    {"from": "n2", "from_port": "출력텍스트", "to": "n3", "to_port": "텍스트"}
+  ],
+  "user_inputs": []
+}

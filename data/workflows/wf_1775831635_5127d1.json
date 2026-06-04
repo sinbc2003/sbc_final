@@ -1,0 +1,123 @@
+{
+  "name": "PDF 요약 후 HWPX 저장",
+  "description": "PDF 파일을 읽어 한국어로 요약한 뒤 HWPX 파일로 저장하는 워크플로우입니다.",
+  "nodes": [
+    {
+      "id": "file_input_1",
+      "type": "file_input",
+      "params": {
+        "auto_convert": true
+      },
+      "position": {
+        "x": 100,
+        "y": 200
+      }
+    },
+    {
+      "id": "pdf_to_md_1",
+      "type": "pdf_to_md",
+      "params": {},
+      "position": {
+        "x": 350,
+        "y": 200
+      }
+    },
+    {
+      "id": "llm_summarize_1",
+      "type": "llm_summarize",
+      "params": {
+        "prompt": "아래 텍스트를 한국어로 간결하게 요약해 주세요."
+      },
+      "position": {
+        "x": 600,
+        "y": 200
+      }
+    },
+    {
+      "id": "md_to_hwpx_1",
+      "type": "md_to_hwpx",
+      "params": {},
+      "position": {
+        "x": 900,
+        "y": 200
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "file_input_1",
+      "from_port": "파일(file)",
+      "to": "pdf_to_md_1",
+      "to_port": "파일(file)"
+    },
+    {
+      "from": "pdf_to_md_1",
+      "from_port": "텍스트(text)",
+      "to": "llm_summarize_1",
+      "to_port": "입력텍스트(text)"
+    },
+    {
+      "from": "llm_summarize_1",
+      "from_port": "출력텍스트(text)",
+      "to": "md_to_hwpx_1",
+      "to_port": "텍스트(text)"
+    }
+  ],
+  "_meta": {
+    "id": "wf_1775831635_5127d1",
+    "name": "PDF 요약 후 HWPX 저장",
+    "description": "PDF 파일을 읽어 한국어로 요약한 뒤 HWPX 파일로 저장하는 워크플로우입니다.",
+    "tags": [],
+    "created_at": "2026-04-10T23:33:55",
+    "updated_at": "2026-04-10T23:33:55",
+    "thumbnail_nodes": [
+      "file_input",
+      "pdf_to_md",
+      "llm_summarize",
+      "md_to_hwpx"
+    ],
+    "thumbnail_data": {
+      "nodes": [
+        {
+          "id": "file_input_1",
+          "type": "file_input",
+          "x": 100,
+          "y": 200
+        },
+        {
+          "id": "pdf_to_md_1",
+          "type": "pdf_to_md",
+          "x": 350,
+          "y": 200
+        },
+        {
+          "id": "llm_summarize_1",
+          "type": "llm_summarize",
+          "x": 600,
+          "y": 200
+        },
+        {
+          "id": "md_to_hwpx_1",
+          "type": "md_to_hwpx",
+          "x": 900,
+          "y": 200
+        }
+      ],
+      "edges": [
+        {
+          "from": "file_input_1",
+          "to": "pdf_to_md_1"
+        },
+        {
+          "from": "pdf_to_md_1",
+          "to": "llm_summarize_1"
+        },
+        {
+          "from": "llm_summarize_1",
+          "to": "md_to_hwpx_1"
+        }
+      ]
+    }
+  },
+  "id": "wf_1775831635_5127d1"
+}

@@ -1,0 +1,130 @@
+{
+  "name": "시드니 3일 여행 계획서 작성",
+  "description": "LLM을 활용하여 시드니 3일 여행 계획을 검정/회색/짙은 회색 톤의 깔끔한 마크다운 문서로 생성하고 PDF 및 DOCX로 출력합니다.",
+  "nodes": [
+    {
+      "id": "text_input_1",
+      "type": "text_input",
+      "params": {
+        "text": "시드니(Sydney) 여행 3일 계획서를 작성해주세요.\n\n[구성 요건]\n- 1일차, 2일차, 3일차로 구분\n- 각 일차: 오전 / 오후 / 저녁 일정\n- 주요 관광지, 추천 맛집, 이동 방법, 예상 비용 포함\n- 마지막에 전체 예산 요약표 포함\n\n[디자인 톤]\n- 제목: 검정 (#000000)\n- 본문: 짙은 회색 (#404040)\n- 보조/부가 정보: 회색 (#808080)\n- 미니멀하고 깔끔한 스타일"
+      },
+      "position": {
+        "x": 100,
+        "y": 250
+      }
+    },
+    {
+      "id": "llm_generate_1",
+      "type": "llm_generate",
+      "params": {
+        "prompt_template": "당신은 전문 여행 플래너이자 문서 디자이너입니다.\n아래 요청을 바탕으로 시드니 3일 여행 계획서를 마크다운으로 작성하세요.\n\n## 작성 규칙\n1. 문서 제목: \"🇦🇺 시드니 3일 여행 계획\"\n2. 각 일차를 ## 제목으로, 오전/오후/저녁을 ### 소제목으로 구분\n3. 각 일정에 📍장소명, 설명(2~3줄), ⏰소요시간, 💡팁을 포함\n4. 각 일차 끝에 | 항목 | 예상비용 | 형태의 비용 표 삽입\n5. 문서 마지막에 3일 전체 요약 표(일차별 하이라이트 + 총 예상비용) 포함\n6. 이모지는 절제하여 사용, 깔끔하고 읽기 쉬운 문체\n7. 호주 달러(AUD) 기준 작성\n\n## 색상 가이드 (출력물 적용 참고)\n- 제목/강조: 검정 #000000\n- 본문: 짙은 회색 #404040  \n- 부가정보/팁: 회색 #808080\n\n{{입력텍스트}}",
+        "provider": "auto",
+        "max_tokens": 4096,
+        "temperature": 0.7
+      },
+      "position": {
+        "x": 350,
+        "y": 250
+      }
+    },
+    {
+      "id": "md_to_pdf_1",
+      "type": "md_to_pdf",
+      "params": {
+        "output_name": "시드니_3일_여행계획"
+      },
+      "position": {
+        "x": 600,
+        "y": 150
+      }
+    },
+    {
+      "id": "md_to_docx_1",
+      "type": "md_to_docx",
+      "params": {
+        "output_name": "시드니_3일_여행계획"
+      },
+      "position": {
+        "x": 600,
+        "y": 350
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "text_input_1",
+      "from_port": "텍스트",
+      "to": "llm_generate_1",
+      "to_port": "입력텍스트"
+    },
+    {
+      "from": "llm_generate_1",
+      "from_port": "출력텍스트",
+      "to": "md_to_pdf_1",
+      "to_port": "텍스트"
+    },
+    {
+      "from": "llm_generate_1",
+      "from_port": "출력텍스트",
+      "to": "md_to_docx_1",
+      "to_port": "텍스트"
+    }
+  ],
+  "_meta": {
+    "id": "wf_1776088830_18205e",
+    "name": "시드니 3일 여행 계획서 작성",
+    "description": "LLM을 활용하여 시드니 3일 여행 계획을 검정/회색/짙은 회색 톤의 깔끔한 마크다운 문서로 생성하고 PDF 및 DOCX로 출력합니다.",
+    "tags": [],
+    "created_at": "2026-04-13T23:00:30",
+    "updated_at": "2026-04-13T23:00:30",
+    "thumbnail_nodes": [
+      "text_input",
+      "llm_generate",
+      "md_to_pdf",
+      "md_to_docx"
+    ],
+    "thumbnail_data": {
+      "nodes": [
+        {
+          "id": "text_input_1",
+          "type": "text_input",
+          "x": 100,
+          "y": 250
+        },
+        {
+          "id": "llm_generate_1",
+          "type": "llm_generate",
+          "x": 350,
+          "y": 250
+        },
+        {
+          "id": "md_to_pdf_1",
+          "type": "md_to_pdf",
+          "x": 600,
+          "y": 150
+        },
+        {
+          "id": "md_to_docx_1",
+          "type": "md_to_docx",
+          "x": 600,
+          "y": 350
+        }
+      ],
+      "edges": [
+        {
+          "from": "text_input_1",
+          "to": "llm_generate_1"
+        },
+        {
+          "from": "llm_generate_1",
+          "to": "md_to_pdf_1"
+        },
+        {
+          "from": "llm_generate_1",
+          "to": "md_to_docx_1"
+        }
+      ]
+    }
+  },
+  "id": "wf_1776088830_18205e"
+}

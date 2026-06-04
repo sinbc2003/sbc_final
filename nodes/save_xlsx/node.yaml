@@ -1,0 +1,42 @@
+id: save_xlsx
+name: XLSX 저장
+version: 1.0.0
+category: 출력
+icon: file-spreadsheet
+author: 신병철
+
+description: >
+  표 데이터를 XLSX(엑셀) 파일로 저장한다.
+  pandas DataFrame을 to_excel로 출력한다.
+
+inputs:
+  - name: 표데이터
+    type: table
+    description: 저장할 표 데이터
+
+outputs:
+  - name: 파일
+    type: file
+    accept: [.xlsx]
+    description: 생성된 XLSX 파일
+
+params:
+  - id: output_name
+    label: 출력 파일명
+    type: string
+    default: "output"
+    description: 확장자 없이 파일명만 입력
+
+resource:
+  requires_api: null
+  max_memory_mb: 100
+  estimated_time: fast
+
+dependencies:
+  - pandas>=2.0.0
+  - openpyxl>=3.1.0
+
+use_when:
+  - 표 데이터를 엑셀로 저장할 때
+  - 처리 결과를 스프레드시트로 내보낼 때
+  - 데이터를 XLSX 형식으로 출력할 때

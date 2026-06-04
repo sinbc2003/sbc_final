@@ -1,0 +1,32 @@
+{
+  "reply": "다음 작업을 실행합니다: replace_cell_content, replace_cell_content",
+  "actions": [
+    {
+      "action": "replace_cell_content",
+      "params": {
+        "block_id": "152",
+        "new_text": "신병철"
+      }
+    },
+    {
+      "action": "replace_cell_content",
+      "params": {
+        "block_id": "148",
+        "new_text": "수학"
+      }
+    }
+  ],
+  "results": [
+    {
+      "action": "replace_cell_content",
+      "success": false,
+      "message": "blockId 152 셀 위치 불일치"
+    },
+    {
+      "action": "replace_cell_content",
+      "success": false,
+      "message": "blockId 148 셀 위치 불일치"
+    }
+  ],
+  "summary": "0개 성공, 2개 실패"
+}

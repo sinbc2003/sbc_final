@@ -1,0 +1,41 @@
+id: data_merge
+name: 데이터 병합
+version: 1.0.0
+category: 전처리
+icon: git-merge
+author: 신병철
+
+description: >
+  여러 표 데이터를 하나로 병합한다.
+  concat(이어붙이기) 또는 merge(키 기준 결합)를 지원한다.
+
+inputs:
+  - name: 표목록
+    type: list
+    description: 병합할 표 데이터의 리스트
+
+outputs:
+  - name: 통합표
+    type: table
+    description: 병합된 표 데이터
+
+params:
+  - id: join_type
+    label: 병합 방식
+    type: select
+    default: "concat"
+    options: ["concat", "merge"]
+    description: "concat: 이어붙이기, merge: 키 기준 결합"
+
+resource:
+  requires_api: null
+  max_memory_mb: 100
+  estimated_time: fast
+
+dependencies:
+  - pandas>=2.0.0
+
+use_when:
+  - 여러 표를 하나로 합쳐야 할 때
+  - 시트별 데이터를 통합할 때
+  - 공통 키로 표를 결합할 때

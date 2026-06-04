@@ -1,0 +1,40 @@
+id: hwp_to_hwpx
+name: HWP → HWPX 변환
+version: 1.0.0
+category: 변환
+icon: file-text
+author: 신병철
+
+description: >
+  구형 HWP(바이너리) 파일을 HWPX(XML 기반)로 변환한다.
+  한/글 COM API를 사용하며 Windows + 한/글 설치 필요.
+  변환 후 XML 기반 처리(빈칸 추출, 값 주입 등)가 가능해진다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.hwp]
+    description: 변환할 HWP 파일
+
+outputs:
+  - name: 파일
+    type: file
+    accept: [.hwpx]
+    description: 변환된 HWPX 파일
+
+params:
+  - id: output_name
+    label: 출력 파일명
+    type: string
+    default: ""
+    description: 비워두면 원본 파일명 사용
+
+resource:
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - HWP 파일을 HWPX로 변환할 때
+  - HWP 양식을 XML로 처리하기 위한 사전 변환

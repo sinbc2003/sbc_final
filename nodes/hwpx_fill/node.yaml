@@ -1,0 +1,40 @@
+id: hwpx_fill
+name: HWPX 양식 채우기
+version: 1.0.0
+category: 출력
+icon: file-check
+author: 신병철
+
+description: >
+  HWPX 양식 파일의 {{빈칸}} 패턴을 데이터로 치환한다.
+  표 데이터의 각 행에 대해 별도 파일을 생성한다.
+
+inputs:
+  - name: 양식파일
+    type: file
+    accept: [.hwpx]
+    description: 빈칸이 포함된 HWPX 양식 파일
+
+  - name: 데이터
+    type: table
+    description: 빈칸을 채울 데이터 (list of dict)
+
+outputs:
+  - name: 파일
+    type: file
+    accept: [.hwpx]
+    description: 채워진 HWPX 파일 (여러 행이면 ZIP)
+
+params: []
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - HWPX 양식에 데이터를 채워야 할 때
+  - 한글 서식에 자동으로 값을 입력할 때
+  - 양식 문서를 대량 생성할 때

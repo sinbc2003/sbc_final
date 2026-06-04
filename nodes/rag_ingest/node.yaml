@@ -1,0 +1,46 @@
+id: rag_ingest
+name: RAG 임베딩 저장
+version: 1.0.0
+category: 유틸
+icon: database
+author: 신병철
+
+description: >
+  텍스트를 청크로 분할하고 벡터 임베딩으로 변환하여
+  ChromaDB에 저장한다. 저장된 데이터는 RAG 검색 노드에서 활용된다.
+
+inputs:
+  - name: 텍스트
+    type: text
+    description: 임베딩할 텍스트
+
+outputs:
+  - name: 결과
+    type: text
+    description: 임베딩 결과 요약 (청크 수, 문서 ID 등)
+
+params:
+  - id: source_name
+    label: 출처 이름
+    type: string
+    default: ""
+    description: "문서 출처 식별용 (예: 2024학년도 수능 수학)"
+  - id: collection
+    label: 컬렉션
+    type: string
+    default: "teacherflow"
+    description: "ChromaDB 컬렉션 이름"
+
+resource:
+  requires_api: null
+  max_memory_mb: 500
+  estimated_time: medium
+
+dependencies:
+  - chromadb
+  - sentence-transformers
+
+use_when:
+  - 문서를 벡터 데이터베이스에 저장해야 할 때
+  - RAG 검색용 데이터를 준비할 때
+  - 임베딩 데이터를 축적할 때

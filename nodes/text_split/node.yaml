@@ -1,0 +1,45 @@
+id: text_split
+name: 텍스트 분할
+version: 1.0.0
+category: 전처리
+icon: scissors
+author: 신병철
+
+description: >
+  긴 텍스트를 슬라이딩 윈도우 방식으로
+  지정 크기의 청크로 분할한다.
+
+inputs:
+  - name: 텍스트
+    type: text
+    description: 분할할 텍스트
+
+outputs:
+  - name: 청크목록
+    type: list
+    description: 분할된 텍스트 청크 리스트
+
+params:
+  - id: chunk_size
+    label: 청크 크기
+    type: integer
+    default: 2000
+    description: 각 청크의 최대 글자 수
+
+  - id: overlap
+    label: 겹침 크기
+    type: integer
+    default: 200
+    description: 청크 간 겹치는 글자 수
+
+resource:
+  requires_api: null
+  max_memory_mb: 50
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - 긴 텍스트를 LLM에 나눠 입력할 때
+  - 문서를 청크 단위로 처리할 때
+  - RAG용 텍스트 분할이 필요할 때

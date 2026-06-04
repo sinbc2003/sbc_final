@@ -1,0 +1,195 @@
+{
+  "reply": "서류 및 자기소개서 심사표에 3명의 지원자 데이터를 아래와 같이 반영합니다.",
+  "actions": [
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "320",
+        "row_texts": [
+          "순위",
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "282",
+        "row_texts": [
+          "총점",
+          "42",
+          "36",
+          "30"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "278",
+        "row_texts": [
+          "채용시험 가점 여부",
+          "2",
+          "1",
+          "0"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "270",
+        "row_texts": [
+          "합계",
+          "40",
+          "35",
+          "30"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "264",
+        "row_texts": [
+          "소계",
+          "20",
+          "18",
+          "16"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "256",
+        "row_texts": [
+          "교육공무원으로서의 자질",
+          "10",
+          "9",
+          "8"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "248",
+        "row_texts": [
+          "교직관, 학생관",
+          "10",
+          "9",
+          "8"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "236",
+        "row_texts": [
+          "소계",
+          "20",
+          "17",
+          "14"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "226",
+        "row_texts": [
+          "기간제교사(시간 강사) 경력 및 지속 근무 여부\n기타(전임교 업무, 담임 경력)",
+          "10",
+          "8",
+          "6"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "218",
+        "row_texts": [
+          "전공/부전공 여부, 학위 취득 및 대학원 수학 여부",
+          "10",
+          "9",
+          "8"
+        ]
+      }
+    },
+    {
+      "action": "replace_table_row",
+      "params": {
+        "block_id": "204",
+        "row_texts": [
+          "지원 교과",
+          "신병철",
+          "이동진",
+          "정종원"
+        ]
+      }
+    }
+  ],
+  "results": [
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    },
+    {
+      "action": "replace_table_row",
+      "success": true,
+      "message": "행 교체 완료"
+    }
+  ],
+  "summary": "11개 성공"
+}

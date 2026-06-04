@@ -1,0 +1,40 @@
+id: md_to_pdf
+name: 마크다운 → PDF
+version: 1.0.0
+category: 출력
+icon: file-output
+author: 신병철
+
+description: >
+  마크다운 텍스트를 PDF 파일로 변환한다.
+  한글 폰트 지원. 표, 제목, 본문 서식 유지.
+
+inputs:
+  - name: 텍스트
+    type: text
+    description: 변환할 마크다운 텍스트
+
+outputs:
+  - name: 파일
+    type: file
+    accept: [.pdf]
+    description: 생성된 PDF 파일
+
+params:
+  - id: output_name
+    label: 파일명
+    type: string
+    default: "output"
+    description: 출력 파일명 (확장자 제외)
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies:
+  - pypandoc
+
+use_when:
+  - 마크다운을 PDF로 변환해야 할 때
+  - 번역이나 요약 결과를 PDF로 저장할 때

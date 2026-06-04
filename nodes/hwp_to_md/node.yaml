@@ -1,0 +1,37 @@
+id: hwp_to_md
+name: HWP → 마크다운
+version: 1.0.0
+category: 변환
+icon: file-text
+author: 신병철
+
+description: >
+  HWP(한글) 문서를 마크다운 텍스트로 변환한다.
+  kordoc CLI를 우선 사용하고, 실패 시
+  olefile로 텍스트 추출을 시도한다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.hwp]
+    description: 변환할 HWP 파일
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 추출된 마크다운 텍스트
+
+params: []
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies:
+  - olefile>=0.47
+
+use_when:
+  - HWP 문서의 내용을 읽어야 할 때
+  - HWP를 다른 형식으로 변환하기 전 단계로
+  - 한글 문서에서 텍스트를 추출해야 할 때

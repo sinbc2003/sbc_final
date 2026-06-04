@@ -1,0 +1,40 @@
+id: column_mapping
+name: 컬럼명 매핑
+version: 1.0.0
+category: 전처리
+icon: columns
+author: 신병철
+
+description: >
+  표 데이터의 컬럼명을 매핑 규칙에 따라 변경한다.
+  "학번→학생번호, 국→국어점수" 형태로 지정한다.
+
+inputs:
+  - name: 표데이터
+    type: table
+    description: 컬럼명을 변경할 표 데이터
+
+outputs:
+  - name: 표데이터
+    type: table
+    description: 컬럼명이 변경된 표 데이터
+
+params:
+  - id: mapping_rules
+    label: 매핑 규칙
+    type: text
+    default: ""
+    description: "학번→학생번호, 국→국어점수 형태로 입력"
+
+resource:
+  requires_api: null
+  max_memory_mb: 50
+  estimated_time: fast
+
+dependencies:
+  - pandas>=2.0.0
+
+use_when:
+  - 표의 컬럼명을 변경해야 할 때
+  - 다른 시스템과 컬럼명을 맞춰야 할 때
+  - 약어를 풀네임으로 변환할 때

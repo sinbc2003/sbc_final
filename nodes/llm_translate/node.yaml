@@ -1,0 +1,48 @@
+id: llm_translate
+name: LLM 번역
+version: 1.0.0
+category: LLM
+icon: globe
+author: 신병철
+
+description: >
+  LLM을 사용하여 텍스트를 번역한다.
+  영어, 한국어, 일본어, 중국어 중
+  대상 언어를 선택할 수 있다.
+
+inputs:
+  - name: 입력텍스트
+    type: text
+    description: 번역할 원본 텍스트
+
+outputs:
+  - name: 출력텍스트
+    type: text
+    description: 번역된 텍스트
+
+params:
+  - id: target_lang
+    label: 대상 언어
+    type: select
+    default: "영어"
+    options: ["영어", "한국어", "일본어", "중국어"]
+    description: 번역할 대상 언어
+
+  - id: provider
+    label: LLM 제공자
+    type: select
+    default: "auto"
+    options: ["auto", "local", "claude", "openai", "gemini"]
+    description: "auto: API 키 있으면 API, 없으면 로컬"
+
+resource:
+  requires_api: null
+  max_memory_mb: 2000
+  estimated_time: slow
+
+dependencies: []
+
+use_when:
+  - 텍스트를 다른 언어로 번역해야 할 때
+  - 영어 문서를 한국어로 번역할 때
+  - 다국어 자료를 준비할 때

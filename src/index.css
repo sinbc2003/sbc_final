@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── 글로벌 ──────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c4c4c4 transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #c4c4c4; border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── 채팅 메시지 텍스트 선택 허용 ─────────────────── */
+.chat-selectable, .chat-selectable * {
+  user-select: text;
+}
+
+/* ── React Flow — Orange3 라이트 테마 ────────────── */
+.react-flow__background {
+  background-color: #fafafa !important;
+}
+
+.react-flow__minimap {
+  background-color: #fff !important;
+  border: 1px solid #dcdcdc !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+  overflow: hidden;
+}
+.react-flow__minimap-mask {
+  fill: rgba(232, 160, 40, 0.06) !important;
+  stroke: rgba(232, 160, 40, 0.4) !important;
+  stroke-width: 1 !important;
+}
+.react-flow__minimap-node {
+  fill: #e8e8e8 !important;
+  stroke: #ccc !important;
+  rx: 4 !important;
+}
+
+.react-flow__controls {
+  border: 1px solid #dcdcdc !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+}
+.react-flow__controls-button {
+  background-color: #fff !important;
+  border-bottom-color: #e8e8e8 !important;
+  fill: #666 !important;
+  width: 26px !important;
+  height: 26px !important;
+}
+.react-flow__controls-button:hover {
+  background-color: #f5f5f5 !important;
+  fill: #333 !important;
+}
+
+.react-flow__connection-line {
+  stroke: #e8a028;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+
+.react-flow__selection {
+  background: rgba(232, 160, 40, 0.06) !important;
+  border: 1px dashed rgba(232, 160, 40, 0.4) !important;
+}
+
+/* ── 노드 상태 ───────────────────────────────────── */
+@keyframes node-running {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,160,40,0.3); }
+  50%      { box-shadow: 0 0 0 6px rgba(232,160,40,0); }
+}
+.node-running { animation: node-running 2s ease-in-out infinite; }
+
+/* ── 엣지 애니메이션 ─────────────────────────────── */
+@keyframes flow {
+  to { stroke-dashoffset: -24; }
+}
+
+/* ── Orange3 호(arc) 핸들 ────────────────────────── */
+
+/* 왼쪽 입력 — 점선 호 ( — 큰 원 호, 방패형 */
+.tf-arc-left.react-flow__handle {
+  left: -24px !important;
+  right: auto !important;
+  transform: translateY(-50%) !important;
+  width: 18px !important;
+  height: 46px !important;
+  background: transparent !important;
+  border-top: 2.5px dashed #bbb !important;
+  border-bottom: 2.5px dashed #bbb !important;
+  border-left: 2.5px dashed #bbb !important;
+  border-right: none !important;
+  border-radius: 46px 0 0 46px !important;
+  cursor: crosshair !important;
+  pointer-events: all !important;
+  z-index: 10 !important;
+  transition: border-color 0.15s ease, left 0.15s ease !important;
+}
+.tf-arc-left.react-flow__handle:hover {
+  border-top-color: #777 !important;
+  border-bottom-color: #777 !important;
+  border-left-color: #777 !important;
+  left: -28px !important;
+  z-index: 20 !important;
+}
+
+/* 오른쪽 출력 — 실선 호 ) — 큰 원 호, 방패형 */
+.tf-arc-right.react-flow__handle {
+  right: -24px !important;
+  left: auto !important;
+  transform: translateY(-50%) !important;
+  width: 18px !important;
+  height: 46px !important;
+  background: transparent !important;
+  border-top: 3px solid #999 !important;
+  border-bottom: 3px solid #999 !important;
+  border-right: 3px solid #999 !important;
+  border-left: none !important;
+  border-radius: 0 46px 46px 0 !important;
+  cursor: crosshair !important;
+  pointer-events: all !important;
+  z-index: 10 !important;
+  transition: border-color 0.15s ease, right 0.15s ease !important;
+}
+.tf-arc-right.react-flow__handle:hover {
+  border-top-color: #555 !important;
+  border-bottom-color: #555 !important;
+  border-right-color: #555 !important;
+  right: -28px !important;
+  z-index: 20 !important;
+}
+
+/* ── 노드 본체 호버 ──────────────────────────────── */
+.tf-node .tf-node-body {
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+.tf-node:hover .tf-node-body {
+  transform: scale(1.04);
+}
+
+/* ── 엣지 상호작용 ──────────────────────────────── */
+.react-flow__edge {
+  cursor: pointer;
+}
+
+/* ── 드래그 오버 ─────────────────────────────────── */
+.drop-target {
+  background: rgba(232,160,40,0.03) !important;
+  outline: 2px dashed rgba(232,160,40,0.35);
+  outline-offset: -2px;
+}
+
+/* ── 설정 모달 input 공통 ────────────────────────── */
+.input-field {
+  @apply px-3 py-2 text-[12px] rounded-lg border border-gray-200 bg-white
+    focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30
+    transition-all;
+}
+
+/* ── 실행 패널 ──────────────────────────────────── */
+.execution-panel {
+  font-family: 'Consolas', 'Monaco', 'Menlo', monospace;
+  transition: min-height 0.2s ease, max-height 0.2s ease;
+}
+.execution-panel::-webkit-scrollbar-track { background: #1e1e1e; }
+.execution-panel::-webkit-scrollbar-thumb { background: #555; }

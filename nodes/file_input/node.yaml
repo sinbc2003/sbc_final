@@ -1,0 +1,45 @@
+id: file_input
+name: 파일 입력
+version: 2.0.0
+category: 유틸
+icon: file-plus
+author: 신병철
+
+description: >
+  파일을 입력받아 후속 노드에 전달한다.
+  자동 변환이 켜져 있으면 PDF/HWPX/DOCX/XLSX 등을
+  자동으로 마크다운 텍스트로 변환하여 텍스트 출력도 제공한다.
+
+inputs: []
+
+outputs:
+  - name: 파일
+    type: file
+    description: 원본 파일 경로
+  - name: 텍스트
+    type: text
+    description: 자동 변환된 마크다운 텍스트 (자동 변환 ON일 때)
+
+params:
+  - id: path
+    label: 파일 경로
+    type: string
+    default: ""
+    description: 파일의 전체 경로
+  - id: auto_convert
+    label: 자동 텍스트 변환
+    type: boolean
+    default: true
+    description: "PDF/HWPX/DOCX 등을 자동으로 마크다운으로 변환"
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - 파이프라인의 시작점으로 파일을 지정할 때
+  - 파일을 넣으면 자동으로 텍스트가 필요할 때
+  - LLM에 문서 내용을 바로 전달할 때

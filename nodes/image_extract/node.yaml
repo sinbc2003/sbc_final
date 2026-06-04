@@ -1,0 +1,43 @@
+id: image_extract
+name: 이미지 추출
+version: 1.0.0
+category: 전처리
+icon: image
+author: 신병철
+
+description: >
+  문서 파일(PDF, HWPX, DOCX)에서 이미지를 추출한다.
+  PDF는 pymupdf, 나머지는 ZIP 내 media 폴더에서 추출.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.pdf, .hwpx, .docx]
+    description: 이미지를 추출할 문서 파일
+
+outputs:
+  - name: 이미지목록
+    type: list
+    description: 추출된 이미지 파일 경로 리스트
+
+params:
+  - id: format
+    label: 출력 형식
+    type: select
+    default: "png"
+    options: ["png", "jpg"]
+    description: 추출 이미지의 저장 형식
+
+resource:
+  requires_api: null
+  max_memory_mb: 500
+  estimated_time: medium
+
+dependencies:
+  - pymupdf>=1.25.0
+  - Pillow>=10.0.0
+
+use_when:
+  - 문서에서 이미지를 추출해야 할 때
+  - PDF의 그림을 별도로 저장할 때
+  - 문서 내 이미지를 OCR하기 전 단계로

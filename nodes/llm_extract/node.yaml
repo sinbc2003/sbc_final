@@ -1,0 +1,47 @@
+id: llm_extract
+name: LLM 정보 추출
+version: 1.0.0
+category: LLM
+icon: table
+author: 신병철
+
+description: >
+  LLM을 사용하여 텍스트에서 지정된 필드를 추출한다.
+  추출 결과를 테이블(2차원 배열) 형태로 반환하며,
+  구조화된 데이터 추출에 활용할 수 있다.
+
+inputs:
+  - name: 입력텍스트
+    type: text
+    description: 정보를 추출할 원본 텍스트
+
+outputs:
+  - name: 추출결과
+    type: table
+    description: 추출된 정보 테이블 (헤더 + 데이터 행)
+
+params:
+  - id: fields
+    label: 추출 필드
+    type: text
+    default: "이름, 학번, 점수"
+    description: "쉼표로 구분된 추출할 필드 목록"
+
+  - id: provider
+    label: LLM 제공자
+    type: select
+    default: "auto"
+    options: ["auto", "local", "claude", "openai", "gemini"]
+    description: "auto: API 키 있으면 API, 없으면 로컬"
+
+resource:
+  requires_api: null
+  max_memory_mb: 2000
+  estimated_time: slow
+
+dependencies: []
+
+use_when:
+  - 텍스트에서 구조화된 정보를 추출할 때
+  - 비정형 텍스트를 표 형태로 변환할 때
+  - 학생 정보, 성적 등을 텍스트에서 뽑아낼 때

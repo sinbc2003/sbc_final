@@ -1,0 +1,57 @@
+# ── Secrets / credentials (절대 커밋 금지) ──
+data/.secrets.json
+.secrets.json
+.env
+.env.*
+*.env
+
+# ── Dependencies ──
+node_modules/
+.pnpm-store/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ── Build output ──
+dist/
+build/
+out/
+src-tauri/target/
+*.tsbuildinfo
+
+# ── Models / large caches (HuggingFace, GGUF 등 — 직접 다운로드) ──
+models/
+*.gguf
+*.safetensors
+
+# ── Logs ──
+*.log
+
+# ── Runtime / user data (개인 데이터·캐시) ──
+data/chroma/
+data/history/
+data/autosave/
+data/uploads/
+data/marketplace_cache/
+data/training/
+
+# ── Installers / binaries ──
+*.msi
+
+# ── Reverse-engineering / 참조 덤프 (비공개) ──
+inline structure/
+document_extractor_full.txt
+hwp_editor_full.txt
+
+# ── OS / editor ──
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

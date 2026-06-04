@@ -1,0 +1,43 @@
+id: text_template
+name: 텍스트 템플릿
+version: 1.0.0
+category: 유틸
+icon: layout-template
+author: 신병철
+
+description: >
+  템플릿의 {{변수명}}을 입력값으로 치환하여
+  텍스트를 조합한다.
+
+inputs:
+  - name: 입력1
+    type: text
+    description: 첫 번째 입력 텍스트
+
+  - name: 입력2
+    type: text
+    description: 두 번째 입력 텍스트
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 치환된 결과 텍스트
+
+params:
+  - id: template
+    label: 템플릿
+    type: text
+    default: "{{입력1}}\n\n---\n\n{{입력2}}"
+    description: "{{변수명}}으로 입력 참조"
+
+resource:
+  requires_api: null
+  max_memory_mb: 10
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - 여러 텍스트를 하나로 합칠 때
+  - 템플릿에 값을 채워 넣을 때
+  - 프롬프트를 조합할 때

@@ -1,0 +1,54 @@
+{
+  "main": "./main/index.js",
+  "displayName": "inline AI - 한글 문서 편집 AI Copilot",
+  "name": "inline-ai",
+  "description": "inline AI - 한글 문서 편집 AI Copilot",
+  "version": "0.2.12",
+  "author": "Elements Corp.",
+  "license": "MIT",
+  "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependenciesFile": "./trusted-dependencies-scripts.json"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "pnpm lint:fix",
+      "pnpm format"
+    ]
+  },
+  "dependencies": {
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@sentry/electron": "^6.11.0",
+    "@sentry/vite-plugin": "^4.3.0",
+    "@tanstack/react-query": "^5.89.0",
+    "axios": "^1.11.0",
+    "cheerio": "^1.1.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "electron-playwright-helpers": "^1.8.2",
+    "electron-router-dom": "^2.1.0",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.6.2",
+    "inline-ai-docs-library": "https://github.com/acalab-web/inline-ai-docs-library.git#414bc31ab051ee22c425767f9f8f6f00aebc608a",
+    "lodash.debounce": "^4.0.8",
+    "lucide-react": "^0.541.0",
+    "markdown-to-jsx": "^7.7.13",
+    "mitt": "^3.0.1",
+    "mixpanel-browser": "^2.70.0",
+    "node-cron": "^4.2.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.2",
+    "react-spinners": "^0.17.0",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7",
+    "usehooks-ts": "^3.1.1",
+    "win-ca": "^3.5.1",
+    "winreg": "^1.2.5",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0",
+    "winston-transport-sentry-node": "^3.0.0"
+  }
+}

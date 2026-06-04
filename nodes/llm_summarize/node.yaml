@@ -1,0 +1,54 @@
+id: llm_summarize
+name: LLM 텍스트 요약
+version: 1.0.0
+category: LLM
+icon: file-text
+author: 신병철
+
+description: >
+  LLM을 사용하여 텍스트를 요약한다.
+  글머리 기호, 문단, 한 줄 요약 등
+  스타일을 선택할 수 있다.
+
+inputs:
+  - name: 입력텍스트
+    type: text
+    description: 요약할 원본 텍스트
+
+outputs:
+  - name: 출력텍스트
+    type: text
+    description: 요약된 텍스트
+
+params:
+  - id: style
+    label: 요약 스타일
+    type: select
+    default: "bullet"
+    options: ["bullet", "paragraph", "oneliner"]
+    description: "bullet: 글머리 기호, paragraph: 문단, oneliner: 한 줄 요약"
+
+  - id: max_length
+    label: 최대 길이
+    type: integer
+    default: 500
+    description: 요약 결과의 최대 글자 수
+
+  - id: provider
+    label: LLM 제공자
+    type: select
+    default: "auto"
+    options: ["auto", "local", "claude", "openai", "gemini"]
+    description: "auto: API 키 있으면 API, 없으면 로컬"
+
+resource:
+  requires_api: null
+  max_memory_mb: 2000
+  estimated_time: slow
+
+dependencies: []
+
+use_when:
+  - 긴 텍스트를 요약해야 할 때
+  - 문서의 핵심만 추출하고 싶을 때
+  - 회의록, 보고서 등을 간추려야 할 때

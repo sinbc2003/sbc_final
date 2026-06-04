@@ -1,0 +1,35 @@
+id: text_input
+name: 텍스트 입력
+version: 1.0.0
+category: 유틸
+icon: type
+author: 신병철
+
+description: >
+  텍스트를 직접 입력하여 후속 노드에 전달한다.
+
+inputs: []
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 입력된 텍스트
+
+params:
+  - id: content
+    label: 내용
+    type: text
+    default: ""
+    description: 전달할 텍스트 내용
+
+resource:
+  requires_api: null
+  max_memory_mb: 10
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - 파이프라인에 텍스트를 직접 입력할 때
+  - 프롬프트나 지시문을 입력할 때
+  - 고정 텍스트를 후속 노드에 전달할 때

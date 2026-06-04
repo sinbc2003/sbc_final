@@ -1,0 +1,50 @@
+id: llm_classify
+name: LLM 텍스트 분류
+version: 1.0.0
+category: LLM
+icon: tag
+author: 신병철
+
+description: >
+  LLM을 사용하여 텍스트를 분류한다.
+  지정된 카테고리 목록 중 하나로 분류하고
+  신뢰도를 함께 반환한다.
+
+inputs:
+  - name: 입력텍스트
+    type: text
+    description: 분류할 텍스트
+
+outputs:
+  - name: 분류결과
+    type: text
+    description: 분류된 카테고리
+  - name: 신뢰도
+    type: text
+    description: 분류 신뢰도 (0~1)
+
+params:
+  - id: categories
+    label: 카테고리 목록
+    type: text
+    default: "수학, 과학, 국어, 영어, 기타"
+    description: "쉼표로 구분된 카테고리 목록"
+
+  - id: provider
+    label: LLM 제공자
+    type: select
+    default: "auto"
+    options: ["auto", "local", "claude", "openai", "gemini"]
+    description: "auto: API 키 있으면 API, 없으면 로컬"
+
+resource:
+  requires_api: null
+  max_memory_mb: 2000
+  estimated_time: slow
+
+dependencies: []
+
+use_when:
+  - 텍스트를 카테고리별로 분류해야 할 때
+  - 문서의 주제를 판별해야 할 때
+  - 학생 답안의 과목을 자동 분류할 때

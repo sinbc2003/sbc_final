@@ -1,0 +1,41 @@
+id: md_to_docx
+name: 마크다운 → DOCX
+version: 1.0.0
+category: 출력
+icon: file-output
+author: 신병철
+
+description: >
+  마크다운 텍스트를 DOCX(Word) 파일로 변환한다.
+  헤딩, 단락, 표를 지원한다.
+
+inputs:
+  - name: 텍스트
+    type: text
+    description: 변환할 마크다운 텍스트
+
+outputs:
+  - name: 파일
+    type: file
+    accept: [.docx]
+    description: 생성된 DOCX 파일
+
+params:
+  - id: output_name
+    label: 출력 파일명
+    type: string
+    default: "output"
+    description: 확장자 없이 파일명만 입력
+
+resource:
+  requires_api: null
+  max_memory_mb: 100
+  estimated_time: fast
+
+dependencies:
+  - python-docx>=1.1.0
+
+use_when:
+  - 마크다운을 Word 문서로 변환할 때
+  - DOCX 파일을 생성해야 할 때
+  - 결과를 Word 형식으로 저장할 때

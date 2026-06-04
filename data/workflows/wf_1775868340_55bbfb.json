@@ -1,0 +1,71 @@
+{
+  "name": "영어 논문 한국어 번역",
+  "description": "영어 논문 파일을 입력받아 한국어로 번역된 텍스트를 출력합니다.",
+  "nodes": [
+    {
+      "id": "file_input_1",
+      "type": "file_input",
+      "params": {
+        "auto_convert": true
+      },
+      "position": {
+        "x": 100,
+        "y": 200
+      }
+    },
+    {
+      "id": "llm_translate_1",
+      "type": "llm_translate",
+      "params": {
+        "prompt": "아래 영어 논문 내용을 자연스러운 한국어로 정확하게 번역해 주세요."
+      },
+      "position": {
+        "x": 350,
+        "y": 200
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "file_input_1",
+      "from_port": "텍스트(text)",
+      "to": "llm_translate_1",
+      "to_port": "입력텍스트(text)"
+    }
+  ],
+  "_meta": {
+    "id": "wf_1775868340_55bbfb",
+    "name": "영어 논문 한국어 번역",
+    "description": "영어 논문 파일을 입력받아 한국어로 번역된 텍스트를 출력합니다.",
+    "tags": [],
+    "created_at": "2026-04-11T09:45:40",
+    "updated_at": "2026-04-11T09:45:40",
+    "thumbnail_nodes": [
+      "file_input",
+      "llm_translate"
+    ],
+    "thumbnail_data": {
+      "nodes": [
+        {
+          "id": "file_input_1",
+          "type": "file_input",
+          "x": 100,
+          "y": 200
+        },
+        {
+          "id": "llm_translate_1",
+          "type": "llm_translate",
+          "x": 350,
+          "y": 200
+        }
+      ],
+      "edges": [
+        {
+          "from": "file_input_1",
+          "to": "llm_translate_1"
+        }
+      ]
+    }
+  },
+  "id": "wf_1775868340_55bbfb"
+}

@@ -1,0 +1,66 @@
+id: llm_generate
+name: LLM 텍스트 생성
+version: 1.0.0
+category: LLM
+icon: brain
+author: 신병철
+
+description: >
+  로컬 LLM 또는 API를 사용하여 텍스트를 생성한다.
+  프롬프트 템플릿에 입력 텍스트를 삽입하고,
+  LoRA 어댑터 선택으로 작업별 특화 생성이 가능하다.
+
+inputs:
+  - name: 입력텍스트
+    type: text
+    description: 프롬프트 템플릿에 삽입할 텍스트
+
+outputs:
+  - name: 출력텍스트
+    type: text
+    description: LLM이 생성한 텍스트
+
+params:
+  - id: prompt_template
+    label: 프롬프트 템플릿
+    type: text
+    default: "다음 내용을 정리하여 작성하라.\n\n{{입력텍스트}}"
+    description: "{{변수명}}으로 입력 참조. 여러 줄 가능."
+
+  - id: lora
+    label: LoRA 어댑터
+    type: string
+    default: ""
+    description: "사용할 LoRA 어댑터 이름 (비워두면 베이스 모델)"
+
+  - id: provider
+    label: LLM 제공자
+    type: select
+    default: "auto"
+    options: ["auto", "local", "claude", "openai", "gemini"]
+    description: "auto: API 키 있으면 API, 없으면 로컬"
+
+  - id: max_tokens
+    label: 최대 토큰
+    type: integer
+    default: 2048
+    description: 생성할 최대 토큰 수
+
+  - id: temperature
+    label: 온도
+    type: float
+    default: 0.7
+    description: "0.0(결정적) ~ 1.0(창의적)"
+
+resource:
+  requires_api: null
+  max_memory_mb: 2000
+  estimated_time: slow
+
+dependencies: []
+
+use_when:
+  - 텍스트를 생성해야 할 때
+  - 문서를 요약하거나 변환해야 할 때
+  - AI가 글을 작성해야 할 때
+  - 공문, 보고서, 상담일지 등을 작성할 때

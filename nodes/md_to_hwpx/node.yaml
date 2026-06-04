@@ -1,0 +1,40 @@
+id: md_to_hwpx
+name: 마크다운 → HWPX
+version: 1.0.0
+category: 출력
+icon: file-output
+author: 신병철
+
+description: >
+  마크다운 텍스트를 HWPX(한컴오피스) 파일로 변환한다.
+  단락, 헤딩, 표를 지원한다.
+
+inputs:
+  - name: 텍스트
+    type: text
+    description: 변환할 마크다운 텍스트
+
+outputs:
+  - name: 파일
+    type: file
+    accept: [.hwpx]
+    description: 생성된 HWPX 파일
+
+params:
+  - id: output_name
+    label: 출력 파일명
+    type: string
+    default: "output"
+    description: 확장자 없이 파일명만 입력
+
+resource:
+  requires_api: null
+  max_memory_mb: 100
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - 마크다운을 HWPX로 변환할 때
+  - 한글 문서를 생성할 때
+  - 결과를 HWPX 파일로 저장할 때

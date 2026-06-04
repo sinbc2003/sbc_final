@@ -1,0 +1,109 @@
+{
+  "id": "preset_form_fill",
+  "name": "공문 양식 자동 채우기",
+  "version": "1.1.0",
+  "description": "공문 파일(PDF/HWP/DOCX 등)과 양식 파일(HWP/Excel)을 넣으면 AI가 빈칸을 자동으로 채워서 완성된 파일을 생성합니다.",
+  "nodes": [
+    {
+      "id": "context_file",
+      "type": "file_input",
+      "params": {
+        "path": "",
+        "auto_convert": true
+      },
+      "position": { "x": 100, "y": 150 }
+    },
+    {
+      "id": "form_file",
+      "type": "file_input",
+      "params": {
+        "path": "",
+        "auto_convert": false
+      },
+      "position": { "x": 100, "y": 450 }
+    },
+    {
+      "id": "extract",
+      "type": "form_extract",
+      "params": {
+        "include_filled": false
+      },
+      "position": { "x": 450, "y": 450 }
+    },
+    {
+      "id": "merge_context",
+      "type": "text_template",
+      "params": {
+        "template": "## 공문 본문\n{{입력1}}\n\n## 양식 빈칸 목록\n{{입력2}}\n\n위 공문 내용을 바탕으로 각 빈칸에 적절한 값을 채우세요.\n반드시 JSON 형식으로만 답하세요: {\"셀참조\": \"값\", ...}\n설명 없이 JSON만 반환."
+      },
+      "position": { "x": 450, "y": 150 }
+    },
+    {
+      "id": "fill_llm",
+      "type": "llm_generate",
+      "params": {
+        "prompt_template": "당신은 교사의 공문 양식을 채우는 비서입니다. 공문 맥락을 읽고 양식 빈칸에 정확한 값을 채우세요.\n\n{{입력텍스트}}",
+        "provider": "auto",
+        "max_tokens": 2048,
+        "temperature": 0.2
+      },
+      "position": { "x": 800, "y": 300 }
+    },
+    {
+      "id": "fill",
+      "type": "form_fill",
+      "params": {
+        "output_name": "완성_양식"
+      },
+      "position": { "x": 1100, "y": 450 }
+    }
+  ],
+  "edges": [
+    {
+      "source": "context_file",
+      "sourceHandle": "텍스트",
+      "target": "merge_context",
+      "targetHandle": "입력1"
+    },
+    {
+      "source": "form_file",
+      "sourceHandle": "파일",
+      "target": "extract",
+      "targetHandle": "파일"
+    },
+    {
+      "source": "extract",
+      "sourceHandle": "빈칸목록",
+      "target": "merge_context",
+      "targetHandle": "입력2"
+    },
+    {
+      "source": "merge_context",
+      "sourceHandle": "텍스트",
+      "target": "fill_llm",
+      "targetHandle": "입력텍스트"
+    },
+    {
+      "source": "form_file",
+      "sourceHandle": "파일",
+      "target": "fill",
+      "targetHandle": "양식파일"
+    },
+    {
+      "source": "fill_llm",
+      "sourceHandle": "출력텍스트",
+      "target": "fill",
+      "targetHandle": "채울내용"
+    }
+  ],
+  "user_inputs": [],
+  "_meta": {
+    "id": "preset_form_fill",
+    "name": "공문 양식 자동 채우기",
+    "description": "공문 파일(아무 형식)과 양식 파일을 넣으면 AI가 빈칸을 자동으로 채워서 완성된 파일을 생성합니다.",
+    "tags": ["프리셋", "공문", "양식", "채우기", "HWP", "Excel", "PDF"],
+    "node_count": 6,
+    "edge_count": 6,
+    "thumbnail_nodes": ["file_input", "file_input", "form_extract", "text_template", "llm_generate", "form_fill"]
+  }
+}

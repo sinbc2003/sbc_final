@@ -1,0 +1,43 @@
+id: form_extract
+name: 양식 빈칸 추출
+version: 1.0.0
+category: 전처리
+icon: scan
+author: 신병철
+
+description: >
+  HWP/HWPX/XLSX 양식 파일에서 빈칸(입력 필드)을 자동 감지하고,
+  각 빈칸의 위치·라벨·맥락을 구조화된 JSON으로 추출한다.
+  LLM이 빈칸을 채우기 위한 사전 단계.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.hwpx, .hwp, .xlsx, .xls]
+    description: 빈칸을 추출할 양식 파일
+
+outputs:
+  - name: 빈칸목록
+    type: text
+    description: "JSON 배열 — [{id, label, context, cell_ref, sheet, value_type}, ...]"
+  - name: 원본텍스트
+    type: text
+    description: 양식 전체 텍스트 (LLM 맥락용)
+
+params:
+  - id: include_filled
+    label: 이미 채워진 칸도 포함
+    type: boolean
+    default: false
+
+resource:
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies:
+  - openpyxl
+  - lxml
+
+use_when:
+  - 공문 첨부 양식의 빈칸을 파악할 때
+  - 양식 파일에서 입력해야 할 항목을 추출할 때

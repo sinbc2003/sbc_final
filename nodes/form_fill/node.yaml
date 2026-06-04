@@ -1,0 +1,44 @@
+id: form_fill
+name: 양식 값 주입
+version: 1.0.0
+category: 출력
+icon: pen-tool
+author: 신병철
+
+description: >
+  양식 파일(XLSX/HWPX/HWP)에 값을 주입한다.
+  LLM이 생성한 JSON(빈칸ID→값)을 받아 원본 양식의 해당 위치에 값을 쓴다.
+  서식, 수식, 매크로를 보존한다.
+
+inputs:
+  - name: 양식파일
+    type: file
+    accept: [.hwpx, .hwp, .xlsx, .xls]
+    description: 값을 주입할 원본 양식 파일
+  - name: 채울내용
+    type: text
+    description: "JSON — {빈칸ID: 값} 또는 {cell_ref: 값}"
+
+outputs:
+  - name: 파일
+    type: file
+    description: 값이 채워진 완성 파일
+
+params:
+  - id: output_name
+    label: 출력 파일명
+    type: string
+    default: "완성"
+
+resource:
+  max_memory_mb: 300
+  estimated_time: fast
+
+dependencies:
+  - openpyxl
+  - lxml
+
+use_when:
+  - 양식 파일에 값을 채울 때
+  - 공문 양식을 자동으로 작성할 때
+  - LLM이 생성한 내용을 원본 파일에 삽입할 때

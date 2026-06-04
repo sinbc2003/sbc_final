@@ -1,0 +1,22 @@
+{
+  "reply": "다음 작업을 실행합니다: replace_cell_content, replace_cell_content",
+  "actions": [
+    {
+      "action": "replace_cell_content",
+      "params": {
+        "block_id": "200",
+        "new_text": "수학"
+      }
+    },
+    {
+      "action": "replace_cell_content",
+      "params": {
+        "block_id": "204",
+        "new_text": "신병철"
+      }
+    }
+  ],
+  "results": null,
+  "summary": null,
+  "preview": true
+}

@@ -1,0 +1,37 @@
+id: docx_to_md
+name: DOCX → 마크다운
+version: 1.0.0
+category: 변환
+icon: file-text
+author: 신병철
+
+description: >
+  DOCX(Word) 문서를 마크다운 텍스트로 변환한다.
+  kordoc CLI를 우선 사용하고, 실패 시
+  python-docx로 텍스트를 추출한다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.docx]
+    description: 변환할 DOCX 파일
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 추출된 마크다운 텍스트
+
+params: []
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies:
+  - python-docx>=1.1.0
+
+use_when:
+  - Word 문서의 내용을 읽어야 할 때
+  - DOCX를 다른 형식으로 변환하기 전 단계로
+  - Word 문서에서 텍스트를 추출해야 할 때

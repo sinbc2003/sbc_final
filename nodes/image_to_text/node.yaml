@@ -1,0 +1,43 @@
+id: image_to_text
+name: 이미지 → 텍스트 (OCR)
+version: 1.0.0
+category: 변환
+icon: eye
+author: 신병철
+
+description: >
+  이미지 파일에서 OCR로 텍스트를 추출한다.
+  pytesseract를 사용하며, 한글/영어/일본어를 지원한다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.png, .jpg, .jpeg, .bmp, .tiff]
+    description: OCR할 이미지 파일
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 추출된 텍스트
+
+params:
+  - id: lang
+    label: 인식 언어
+    type: select
+    default: "kor+eng"
+    options: ["kor+eng", "eng", "kor", "jpn"]
+    description: "OCR 인식 언어"
+
+resource:
+  requires_api: null
+  max_memory_mb: 300
+  estimated_time: medium
+
+dependencies:
+  - pytesseract>=0.3.10
+  - Pillow>=10.0.0
+
+use_when:
+  - 이미지에서 텍스트를 추출해야 할 때
+  - 스캔 문서를 텍스트로 변환할 때
+  - 사진 속 글씨를 인식해야 할 때

@@ -1,0 +1,47 @@
+id: xlsx_to_md
+name: Excel → 마크다운
+version: 1.0.0
+category: 변환
+icon: table
+author: 신병철
+
+description: >
+  Excel/CSV 파일을 마크다운 텍스트와 표 데이터로 변환한다.
+  kordoc CLI를 우선 사용하고, 실패 시
+  pandas로 읽어서 마크다운 표로 출력한다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.xlsx, .xls, .csv]
+    description: 변환할 Excel 또는 CSV 파일
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 추출된 마크다운 텍스트
+  - name: 표데이터
+    type: table
+    description: 구조화된 표 데이터
+
+params:
+  - id: sheet
+    label: 시트명
+    type: string
+    default: ""
+    description: "특정 시트명 (빈값이면 전체 시트)"
+
+resource:
+  requires_api: null
+  max_memory_mb: 500
+  estimated_time: fast
+
+dependencies:
+  - pandas>=2.0.0
+  - openpyxl>=3.1.0
+  - tabulate>=0.9.0
+
+use_when:
+  - Excel 파일의 내용을 읽어야 할 때
+  - 스프레드시트 데이터를 텍스트로 변환할 때
+  - CSV 파일을 구조화된 형태로 변환할 때

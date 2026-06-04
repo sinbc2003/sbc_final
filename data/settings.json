@@ -1,0 +1,38 @@
+{
+  "general": {
+    "language": "ko",
+    "theme": "light",
+    "auto_save_interval": 30,
+    "check_updates": true,
+    "update_channel": "stable",
+    "output_dir": ""
+  },
+  "llm": {
+    "default_provider": "auto",
+    "local_model": "",
+    "local_context_size": 0,
+    "default_temperature": 0.7,
+    "default_max_tokens": 8096
+  },
+  "rag": {
+    "enabled": false,
+    "collection_name": "teacherflow",
+    "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "chunk_size": 500,
+    "chunk_overlap": 50,
+    "sync_enabled": false,
+    "sync_url": ""
+  },
+  "live": {
+    "plan_model": "auto",
+    "execute_model": "openai",
+    "plan_temperature": 0.7,
+    "execute_temperature": 0.3,
+    "auto_connect": true
+  },
+  "nodes": {
+    "marketplace_url": "https://nodes.teacherflow.com/api",
+    "auto_update_nodes": true,
+    "installed_extra": []
+  }
+}

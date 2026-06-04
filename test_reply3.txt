@@ -1,0 +1,20 @@
+{
+  "reply": "다음 작업을 실행합니다: replace_cell_content",
+  "actions": [
+    {
+      "action": "replace_cell_content",
+      "params": {
+        "block_id": "204",
+        "new_text": "신병철"
+      }
+    }
+  ],
+  "results": [
+    {
+      "action": "replace_cell_content",
+      "success": true,
+      "message": "셀 내용 교체 완료"
+    }
+  ],
+  "summary": "1개 성공"
+}

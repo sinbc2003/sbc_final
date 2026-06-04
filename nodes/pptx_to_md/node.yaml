@@ -1,0 +1,36 @@
+id: pptx_to_md
+name: PPTX → 마크다운
+version: 1.0.0
+category: 변환
+icon: file-text
+author: 신병철
+
+description: >
+  PPTX(파워포인트) 문서를 마크다운 텍스트로 변환한다.
+  슬라이드별로 ## 헤딩을 붙여 구조적으로 추출한다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.pptx, .ppt]
+    description: 변환할 PPTX 파일
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 추출된 마크다운 텍스트
+
+params: []
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies:
+  - python-pptx>=0.6.23
+
+use_when:
+  - PPTX 문서의 내용을 읽어야 할 때
+  - 파워포인트를 텍스트로 변환할 때
+  - 프레젠테이션에서 텍스트를 추출해야 할 때

@@ -1,0 +1,39 @@
+id: table_extract
+name: 표 추출
+version: 1.0.0
+category: 전처리
+icon: table
+author: 신병철
+
+description: >
+  마크다운 텍스트에서 표를 추출하여
+  JSON(list of dict) 형태로 반환한다.
+
+inputs:
+  - name: 텍스트
+    type: text
+    description: 표가 포함된 마크다운 텍스트
+
+outputs:
+  - name: 표데이터
+    type: table
+    description: 추출된 표 데이터 (list of dict)
+
+params:
+  - id: table_index
+    label: 표 번호
+    type: integer
+    default: 0
+    description: "추출할 표 번호 (0부터 시작, -1=모든 표)"
+
+resource:
+  requires_api: null
+  max_memory_mb: 50
+  estimated_time: fast
+
+dependencies: []
+
+use_when:
+  - 마크다운에서 표를 추출해야 할 때
+  - 문서의 표 데이터를 구조화할 때
+  - 표를 JSON이나 엑셀로 변환하기 전 단계로

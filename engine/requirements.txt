@@ -1,0 +1,11 @@
+# TeacherFlow Engine 의존성
+pyyaml>=6.0
+psutil>=5.9
+pymupdf>=1.25.0
+pandas>=2.0
+tabulate>=0.9
+
+# LLM API (선택)
+# anthropic>=0.40
+# openai>=1.50
+# google-generativeai>=0.8

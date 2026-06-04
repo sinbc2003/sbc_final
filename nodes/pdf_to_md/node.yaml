@@ -1,0 +1,42 @@
+id: pdf_to_md
+name: PDF → 마크다운
+version: 1.0.0
+category: 변환
+icon: file-text
+author: 신병철
+
+description: >
+  PDF 문서를 마크다운 텍스트로 변환한다.
+  표, 이미지, 텍스트를 구조적으로 추출하여
+  후속 LLM 처리에 적합한 형태로 출력한다.
+
+inputs:
+  - name: 파일
+    type: file
+    accept: [.pdf]
+    description: 변환할 PDF 파일
+
+outputs:
+  - name: 텍스트
+    type: text
+    description: 추출된 마크다운 텍스트
+
+params:
+  - id: pages
+    label: 페이지 범위
+    type: string
+    default: "전체"
+    description: "예: 1-5, 3, 10-15"
+
+resource:
+  requires_api: null
+  max_memory_mb: 200
+  estimated_time: fast
+
+dependencies:
+  - pymupdf>=1.25.0
+
+use_when:
+  - PDF 문서의 내용을 읽어야 할 때
+  - PDF를 다른 형식으로 변환하기 전 단계로
+  - 문서에서 텍스트를 추출해야 할 때
