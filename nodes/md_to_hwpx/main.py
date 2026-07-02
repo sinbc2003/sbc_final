@@ -4,7 +4,8 @@
 구현 우선순위:
 1. pypandoc-hwpx CLI (설치되어 있으면)
 2. kordoc CLI
-3. 내장 HWPX 빌더 (fallback — 서식/표병합/수식 지원)
+3. python-hwpx 라이브러리 (검증된 생성 — 한글 2024 호환 실측 확인, 표병합 지원)
+4. 내장 HWPX 빌더 (최후 수단 — 한글 2024에서 "파일 손상" 판정 이력, 수식 필요 시만)
 
 HWPX = ZIP 안에 XML들이 들어있는 구조.
 
@@ -655,16 +656,198 @@ def _convert_with_pypandoc_hwpx(md_text: str, output_path: str) -> str | None:
     return None
 
 
+# ── python-hwpx 라이브러리 경로 ──────────────────────
+
+def _col_letter(c: int) -> str:
+    """0-기반 열 인덱스 → 스프레드시트 열 문자 (0→A, 26→AA)."""
+    s = ""
+    c += 1
+    while c:
+        c, rem = divmod(c - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
+def _compute_table_merges(matrix: list) -> list:
+    """병합 마커('>'=왼쪽과 병합, '^'=위와 병합)를 A1:B2 범위로 변환.
+
+    matrix는 제자리 수정된다(마커 셀 → 빈 문자열).
+    빈 셀은 병합으로 취급하지 않는다 — 양식의 빈칸일 수 있으므로.
+    """
+    n_r = len(matrix)
+    n_c = max((len(r) for r in matrix), default=0)
+    for row in matrix:
+        while len(row) < n_c:
+            row.append("")
+    covered = [[False] * n_c for _ in range(n_r)]
+    merges: list[str] = []
+    for r in range(n_r):
+        for c in range(n_c):
+            if covered[r][c]:
+                continue
+            v = matrix[r][c].strip()
+            if v in (">", "^"):  # 고아 마커는 빈칸 처리
+                matrix[r][c] = ""
+                continue
+            w = 1
+            while c + w < n_c and matrix[r][c + w].strip() == ">":
+                w += 1
+            h = 1
+            while r + h < n_r:
+                below = [matrix[r + h][cc].strip() for cc in range(c, c + w)]
+                if below and below[0] == "^" and all(b in ("^", ">") for b in below):
+                    h += 1
+                else:
+                    break
+            if w > 1 or h > 1:
+                merges.append(f"{_col_letter(c)}{r + 1}:{_col_letter(c + w - 1)}{r + h}")
+                for rr in range(r, r + h):
+                    for cc in range(c, c + w):
+                        covered[rr][cc] = True
+                        if (rr, cc) != (r, c):
+                            matrix[rr][cc] = ""
+    return merges
+
+
+def _clean_inline_md(text: str) -> str:
+    """셀/리스트용 인라인 마크다운 제거 (서식은 버리고 텍스트만)."""
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", text)
+    return text.strip()
+
+
+def _md_inline_children(text: str):
+    """문단 텍스트 → Run 목록 (**굵게**만 서식 유지)."""
+    from hwpx.builder import Run
+
+    runs = []
+    for part in re.split(r"(\*\*.+?\*\*)", text):
+        if not part:
+            continue
+        if part.startswith("**") and part.endswith("**") and len(part) > 4:
+            # size 미지정 시 라이브러리 bold 기본이 18pt — 본문(10pt)에 맞춘다
+            runs.append(Run(_clean_inline_md(part[2:-2]), bold=True, size=10))
+        else:
+            runs.append(Run(_clean_inline_md(part)))
+    return runs
+
+
+def _md_to_builder_children(md_text: str) -> list:
+    """마크다운 → python-hwpx builder 블록 목록."""
+    from hwpx.builder import Bullet, Heading, NumberedList, Paragraph, Table
+
+    children: list = []
+    lines = md_text.splitlines()
+    i = 0
+    bullets: list[str] = []
+    numbers: list[str] = []
+
+    def flush_lists():
+        if bullets:
+            children.append(Bullet([_clean_inline_md(x) for x in bullets]))
+            bullets.clear()
+        if numbers:
+            children.append(NumberedList([_clean_inline_md(x) for x in numbers]))
+            numbers.clear()
+
+    while i < len(lines):
+        s = lines[i].strip()
+        if not s:
+            flush_lists()
+            i += 1
+            continue
+
+        m = re.match(r"^(#{1,6})\s+(.+)$", s)
+        if m:
+            flush_lists()
+            children.append(Heading(min(len(m.group(1)), 6), _clean_inline_md(m.group(2))))
+            i += 1
+            continue
+
+        if s.startswith("|"):
+            flush_lists()
+            block = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                block.append(lines[i].strip())
+                i += 1
+            matrix, has_header = [], False
+            for idx, ln in enumerate(block):
+                cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+                if cells and all(re.match(r"^:?-{2,}:?$", c) for c in cells if c):
+                    has_header = idx == 1
+                    continue
+                matrix.append([_clean_inline_md(c) for c in cells])
+            if not matrix:
+                continue
+            merges = _compute_table_merges(matrix)
+            if has_header:
+                children.append(Table(header=matrix[0], rows=matrix[1:], merges=merges))
+            else:
+                children.append(Table(rows=matrix, merges=merges))
+            continue
+
+        m = re.match(r"^[-*·]\s+(.+)$", s)
+        if m:
+            bullets.append(m.group(1))
+            i += 1
+            continue
+        m = re.match(r"^\d+[.)]\s+(.+)$", s)
+        if m:
+            numbers.append(m.group(1))
+            i += 1
+            continue
+
+        flush_lists()
+        runs = _md_inline_children(s)
+        if len(runs) == 1 and not runs[0].bold:
+            children.append(Paragraph(runs[0].text))
+        else:
+            children.append(Paragraph(children=runs))
+        i += 1
+
+    flush_lists()
+    return children
+
+
+def _convert_with_python_hwpx(md_text: str, output_path: str) -> str | None:
+    """python-hwpx 라이브러리로 변환 — 검증된 XML 생성 (한글 2024 호환 실측 확인).
+
+    내장 빌더와 달리 secPr/tbl 배치 등 스키마를 라이브러리가 보장하고,
+    저장 시 패키지 검증 + 재열기 검사(hard gates)까지 수행한다.
+    """
+    try:
+        from hwpx.builder import Document, Section
+    except ImportError:
+        return None
+    try:
+        children = _md_to_builder_children(md_text)
+        if not children:
+            return None
+        import contextlib
+        import io
+        doc = Document(sections=[Section(children=children)])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            report = doc.save_to_path(output_path)
+        gates = getattr(report, "hard_gates", {}) or {}
+        failed = [k for k, v in gates.items() if v not in ("pass", "unavailable")]
+        if failed or not Path(output_path).exists():
+            return None
+        return output_path
+    except Exception:
+        return None
+
+
 def execute(inputs: dict, params: dict, context: dict) -> dict:
-    md_text = inputs["텍스트"]
+    raw_md = inputs["텍스트"]
     output_name = params.get("output_name", "output")
     output_path = os.path.join(context["temp_dir"], f"{output_name}.hwpx")
 
     context["progress"](0.1)
     context["log"]("HWPX 변환 시작")
 
-    # 전처리 (알려진 버그 회피)
-    md_text = _preprocess_md_for_hwpx(md_text)
+    # 전처리는 pypandoc-hwpx/kordoc 경로 전용 (알려진 버그 회피 — 빈 셀 '.' 치환 포함)
+    md_text = _preprocess_md_for_hwpx(raw_md)
 
     # 1순위: pypandoc-hwpx (Pandoc AST 기반, 가장 정확)
     result = _convert_with_pypandoc_hwpx(md_text, output_path)
@@ -681,8 +864,17 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
         context["progress"](1.0)
         return {"파일": result}
 
-    # 3순위: 내장 빌더 (최소 기능)
-    context["log"]("외부 도구 없음, 내장 빌더로 변환 (제한된 서식)")
+    # 3순위: python-hwpx 라이브러리 (검증된 생성 경로 — 원본 md 사용, 빈 셀 보존)
+    # SMP 이모지만 제거 (한/글 XML 파서 한계)
+    clean_md = re.sub(r"[\U00010000-\U0010FFFF]", "", raw_md)
+    result = _convert_with_python_hwpx(clean_md, output_path)
+    if result:
+        context["log"]("python-hwpx 라이브러리로 변환 완료")
+        context["progress"](1.0)
+        return {"파일": result}
+
+    # 4순위: 내장 빌더 (최후 수단 — 한글 2024에서 손상 판정 이력 있음)
+    context["log"]("경고: python-hwpx 미설치/실패 — 내장 빌더로 변환 (한글 2024 호환성 불안정)")
     result = _build_hwpx(md_text, output_path)
 
     context["progress"](1.0)

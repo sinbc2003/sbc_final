@@ -296,10 +296,42 @@
 - LLM에게 셀ID 매핑을 직접 시키지 말 것(출력 수천 토큰) → **LLM은 "비정형 텍스트→구조화 JSON"만**, 행 배치·셀ID·계산은 코드. (실제 제품 역할 분담과 동일)
 
 ### 남은 TODO (다음 세션)
-- 노드 파이프라인에서 form_extract→LLM(local)→form_fill 워크플로우를 UI로 실행하는 E2E 확인.
+- 노드 파이프라인에서 form_extract→LLM(local)→form_fill 워크플로우를 UI로 실행하는 E2E 확인. ※ 로컬 LLM 필요 — 메모리 여유 시.
+- 라이브 채팅(로컬 gemma) 실전 검증 재시도 — §10.6의 3가지 차단 요인 해소 후.
 - 3단계(증류): API 로깅 시작 + 공문서 익명화 파이프라인.
 - goe 마감일 연도 주입 (분류 프롬프트에 현재 날짜).
 - HWPML blockId→COM 좌표 캘리브레이션 (§5 gap #2, 라이브 편집 신뢰성).
+- ~~md_to_hwpx 내장 빌더 버그~~ → **§10.7에서 해결** (python-hwpx 경로 추가).
+
+## 10.7 작업 기록 — 2026-07-02 저녁 (md_to_hwpx "파일 손상" 버그 해결 ✅)
+
+**증상**: md_to_hwpx 내장 빌더(3순위 폴백) 산출물을 한글 2024가 "파일이 손상되었습니다"로 거부.
+**원인 (실측)**: 내장 빌더의 XML 구조 위반 — `hp:secPr`·`hp:tbl`을 `hs:sec` 직속에 배치 (실제 HWPX는 첫 문단 run 안에 있어야 함). 추가로 `_preprocess_md_for_hwpx`가 **빈 표 셀을 "."으로 치환**(pypandoc-hwpx 버그 회피용)해 양식 빈칸을 파괴하는 문제도 발견.
+**해결**: 이미 설치돼 있던 **python-hwpx 2.10.0 라이브러리의 builder API** 사용 경로를 3순위로 추가 (내장 빌더는 4순위 최후 수단으로 강등). 새 우선순위: pypandoc-hwpx → kordoc → **python-hwpx** → 내장 빌더.
+- `_md_to_builder_children`: md 블록 파서 (헤딩·문단·표·불릿·번호 리스트). **원본 md 사용** (전처리의 "." 치환 미적용 → 빈 셀 보존, 양식 생성 가능).
+- 표 병합: `>`(왼쪽과 병합)·`^`(위와 병합) 마커 → "A1:B2" 범위 변환 (`_compute_table_merges`). 빈 셀은 병합으로 취급 안 함 (legacy와 다름 — 의도적).
+- **bold run 함정**: 라이브러리 bold 기본 charPr이 18pt → `size=10` 명시로 본문 크기 유지.
+- 라이브러리 저장 시 자체 검증(패키지·스키마·재열기 hard gates) 수행 — gates 실패 시 내장 빌더로 폴백.
+**검증**: 한글 2024 실제 열기 (제목·표·병합·bold 정상, 손상 경고 없음) + hwpx_grid 파싱 + extract_blank_fields 빈칸 6개 라벨 정상 + 엣지(표만/수식/리스트 혼합) 통과. ※ test_all_nodes.py는 엔진 서버(:8321) 필요해 이 환경에선 원래 전부 skip — 회귀 아님.
+**의의**: "양식 없음 → LLM 생성 md → hwpx 출력" 경로가 이제 실제로 한/글에서 열리는 문서를 만든다. 로컬 LLM 불필요 작업이라 메모리 부족 상황에서 수행.
+
+## 10.6 작업 기록 — 2026-07-02 저녁 (라이브 채팅 실전 데모 시도 → 중단, 원인 3개 확보)
+
+**목표였던 것**: 한/글 열어두고 `/api/chat/live`(preview=false, model=local)로 로컬 gemma가 실시간 문서 편집하는 모습 확인. **사용자 질문 "실시간 스트리밍 제어 볼 수 있나"에 대한 답 = 구조상 가능** (COM 캐럿·선택 이동이 화면에 그대로 보임, Inline AI와 같은 원리).
+
+**확인된 것 (동작함)**:
+- 엔진(uvicorn :8406) 기동, `/api/live/connect/hwp` COM 연결, `/api/live/execute/hwp` insert_text 실전 성공 — 화면에서 텍스트 삽입 확인.
+- `/api/chat/live` 파이프라인 진입: CVD 스캔(캐럿 훑기)까지 화면에서 관찰됨.
+
+**라이브 로컬 LLM이 실패한 원인 3개 (전부 실측)**:
+1. **goe_watcher가 llama-server를 계속 kill**: CC gemma 토글 off 상태에서 `reconcile_gemma`가 매 틱 `taskkill /F /IM llama-server.exe` — TeacherFlow가 띄운 서버도 무차별 종료. §10 "라이프사이클 주의"의 실증. **근본 해결 = llama-server 상시 서비스 분리, goe 토글은 '요청 여부'만 제어**.
+2. **goe_watcher 중복 2개 실행 발견** → 동시 기동 경합. 중복 1개 정리함(PID 25468 kill, 10544 유지). **자동시작 등록이 2개인지 확인 필요**.
+3. **VRAM 부족 (Vulkan ErrorOutOfDeviceMemory)**: 다른 작업(run_fig 4샤드) 상주 중엔 4.75GB 모델 로드 실패. Arc 140V는 공유 메모리라 램 여유 = VRAM 여유. **로컬 LLM 작업은 무거운 배치 작업과 동시 실행 불가** — 배포 설계에도 반영할 것 (램 감지 후 로드 시점 결정).
+
+**추가 발견**:
+- `generate_chat`의 local 분기 부재 → 폴백이 messages를 `[role] content` 문자열로 합쳐 `generate()`에 전달. 로컬용 채팅 경로(`/v1/chat/completions` messages 직통)를 llm_manager에 추가하는 게 맞음 (2단계 작업에 포함).
+- **md_to_hwpx 내장 빌더 산출물 손상**: pypandoc-hwpx/kordoc 미설치라 내장 빌더로 폴백됐고, 그 hwpx를 한글 2024가 "파일이 손상되었습니다"로 거부. 별도 수정 필요 (또는 pdf2hwpx(#008) 연동).
+- 데모 종료 시 원상복구 완료: CC 토글 off, 엔진·데모 한/글 종료, run_fig 등 사용자 작업 무접촉.
 
 ## 10.5 작업 기록 — 2026-07-02 오후 ("이하빈칸" 마커 + 육안 검증 ✅)
 
