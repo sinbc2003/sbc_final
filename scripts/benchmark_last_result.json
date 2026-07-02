@@ -4,12 +4,18 @@
     "total": 1126,
     "diffs": 0
   },
-  "level2": {
-    "mode": "level2:local",
-    "correct": 495,
-    "total": 495,
-    "accuracy": 100.0,
-    "diffs": [],
-    "result_file": "C:\\Users\\sinbc\\AppData\\Local\\Temp\\bench_zghxy_tq\\LLM채움.hwpx"
+  "marker": {
+    "marker_tables": 6,
+    "moves": [
+      "s0_t1: '이하빈칸' 마커 r2 → r4",
+      "s0_t3: '이하빈칸' 마커 r2 → r4",
+      "s0_t9: '이하빈칸' 마커 r2 → r4",
+      "s0_t11: '이하빈칸' 마커 r2 → r4",
+      "s0_t13: '이하빈칸' 마커 r2 → r5",
+      "s0_t15: '이하빈칸' 마커 r2 → r4"
+    ],
+    "correct": 1126,
+    "total": 1126,
+    "diffs": 0
   }
 }

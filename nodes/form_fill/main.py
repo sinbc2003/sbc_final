@@ -279,7 +279,9 @@ def _fill_hwpx(form_path: str, fill_data: dict, output_path: str, context):
     # fill_data 키가 "s0_t1_r4_c2" 형식이면 셀 주소로 정확히 주입
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from engine.hwpml.hwpx_grid import ID_RE, fill_hwpx_cells
+    from engine.hwpml.hwpx_grid import (
+        ID_RE, fill_hwpx_cells, parse_hwpx, relocate_below_markers,
+    )
 
     grid_map = {}
     legacy_map = {}
@@ -293,6 +295,13 @@ def _fill_hwpx(form_path: str, fill_data: dict, output_path: str, context):
 
     filled = 0
     if grid_map:
+        # "이하빈칸" 마커를 채운 행 아래로 자동 이동 (공문서 관례)
+        try:
+            doc = parse_hwpx(form_path)
+            for k, v in relocate_below_markers(doc, grid_map, log=context["log"]).items():
+                grid_map.setdefault(k, v)
+        except Exception as e:
+            context["log"](f"'이하빈칸' 마커 이동 건너뜀: {e}")
         filled += fill_hwpx_cells(form_path, output_path, grid_map, log=context["log"])
         # 이후 legacy 처리는 방금 쓴 output을 입력으로
         work_input = output_path

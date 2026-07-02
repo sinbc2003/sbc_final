@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 from engine.hwpml.hwpx_grid import (  # noqa: E402
     parse_hwpx, extract_blank_fields, fill_hwpx_cells,
+    find_below_marker, relocate_below_markers,
 )
 
 ORIGINAL = (r"C:\Users\sinbc\OneDrive\바탕 화면"
@@ -90,6 +91,44 @@ def grade(original_doc, result_doc, scope=None) -> tuple:
         else:
             diffs.append((k, orig.get(k, ""), result.get(k, "")))
     return correct, len(keys), diffs
+
+
+# ── 마커 이동 회귀 테스트 ──────────────────────────
+
+def run_marker_test(workdir: Path, original_doc, gt: dict) -> dict:
+    """'이하빈칸' 마커 자동 이동 검증.
+
+    새 양식 시뮬레이션(데이터 클리어 + 마커를 첫 데이터 행으로) → 채움 +
+    relocate_below_markers → 마커가 원래 위치(마지막 데이터 행 아래)로
+    돌아오는지 전체 셀 채점으로 확인.
+    """
+    template_map = {k: "" for k in gt}
+    marker_tables = 0
+    for g in original_doc.tables:
+        marker = find_below_marker(g)
+        if not marker:
+            continue
+        marker_tables += 1
+        for c, _t in marker["cells"]:
+            template_map[f"{g.key}_r{marker['row']}_c{c}"] = ""
+        for c, t in marker["cells"]:
+            template_map[f"{g.key}_r{g.header_row_count()}_c{c}"] = t
+
+    template_path = workdir / "새양식.hwpx"
+    fill_hwpx_cells(ORIGINAL, str(template_path), template_map)
+    template_doc = parse_hwpx(str(template_path))
+
+    moves: list[str] = []
+    extra = relocate_below_markers(template_doc, gt, log=moves.append)
+    merged = {**extra, **gt}  # 데이터가 마커 클리어보다 우선
+
+    out_path = workdir / "마커이동.hwpx"
+    fill_hwpx_cells(str(template_path), str(out_path), merged)
+    result_doc = parse_hwpx(str(out_path))
+    correct, total, diffs = grade(original_doc, result_doc)  # 전체 셀 비교
+    return {"marker_tables": marker_tables, "moves": moves,
+            "correct": correct, "total": total, "diffs": diffs,
+            "result_file": str(out_path)}
 
 
 # ── 레벨2: LLM 의미 매칭 ────────────────────────────
@@ -323,6 +362,21 @@ def main():
             print(f"    {k}: 원본='{o}' 결과='{r}'")
 
     results = {"level1": {"correct": correct, "total": total, "diffs": len(diffs)}}
+
+    # ── 레벨1.7: 마커 이동 ──
+    mk = run_marker_test(workdir, original_doc, gt)
+    print(f"\n[마커] '이하빈칸' 이동 테스트 — 마커 표 {mk['marker_tables']}개")
+    for mv in mk["moves"]:
+        print(f"    {mv}")
+    print(f"[마커] 채점: {mk['correct']}/{mk['total']}"
+          f" ({mk['correct']/mk['total']*100:.1f}%)")
+    if mk["diffs"]:
+        for k, o, r in mk["diffs"][:10]:
+            print(f"    {k}: 원본='{o}' 결과='{r}'")
+    results["marker"] = {"marker_tables": mk["marker_tables"], "moves": mk["moves"],
+                         "correct": mk["correct"], "total": mk["total"],
+                         "diffs": len(mk["diffs"])}
+    diffs = diffs + mk["diffs"]
 
     # ── 레벨2: LLM ──
     if args.llm:

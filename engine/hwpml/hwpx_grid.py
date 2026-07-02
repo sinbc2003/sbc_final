@@ -383,6 +383,84 @@ def extract_blank_fields(doc: HwpxDoc, include_filled: bool = False) -> list[dic
     return fields
 
 
+# ── "이하빈칸" 마커 이동 ────────────────────────────
+
+# 공문서 관례: 마지막 데이터 행 바로 아래 행에 "이하빈칸"(또는 "이하여백") 표기.
+# 실문서에선 셀 하나에 한 글자씩 흩어지기도 한다 — 행 단위로 이어 붙여 판정.
+MARKER_TEXTS = {"이하빈칸", "이하여백"}
+
+
+def find_below_marker(grid: TableGrid) -> Optional[dict]:
+    """데이터 영역에서 '이하빈칸' 마커 행 탐지.
+
+    반환: {"row": r, "cells": [(col, text)]} 또는 None.
+    숫자만 있는 셀(미리 인쇄된 관리번호)은 판정에서 제외한다.
+    """
+    for r in range(grid.header_row_count(), grid.row_cnt):
+        parts = [(c, cell.text.strip())
+                 for (rr, c), cell in sorted(grid.cells.items())
+                 if rr == r and cell.text.strip() and not cell.text.strip().isdigit()]
+        if parts and "".join(t for _, t in parts).replace(" ", "") in MARKER_TEXTS:
+            return {"row": r, "cells": parts}
+    return None
+
+
+def relocate_below_markers(doc: HwpxDoc, fill_map: dict, log=None) -> dict:
+    """'이하빈칸' 마커를 채워진 마지막 행 바로 아래 빈 행으로 옮기는 추가 항목 계산.
+
+    반환: {셀ID: 값} — 기존 마커 클리어("") + 새 위치 마커 문자.
+    fill_map과 겹치는 키는 호출 측에서 fill_map을 우선할 것(setdefault 병합).
+    빈 행이 없으면(표가 가득 참) 마커를 지우기만 한다 — 원본 문서 관례와 동일.
+    """
+    overrides = {str(k).strip(): str(v) for k, v in fill_map.items()}
+    by_table: dict[tuple, set] = {}
+    for key, value in overrides.items():
+        m = ID_RE.match(key)
+        if m and value.strip():
+            s, t, r, _c = (int(g) for g in m.groups())
+            by_table.setdefault((s, t), set()).add(r)
+
+    extra: dict = {}
+    for grid in doc.tables:
+        marker = find_below_marker(grid)
+        if not marker:
+            continue
+        filled_rows = by_table.get((grid.section_idx, grid.index))
+        if not filled_rows:
+            continue  # 이 표에 채우는 값이 없으면 마커 유지
+        target = max(filled_rows) + 1
+        if target == marker["row"]:
+            continue
+
+        clears = {f"{grid.key}_r{marker['row']}_c{c}": "" for c, _ in marker["cells"]}
+
+        def projected(r: int, c: int, cell: GridCell) -> str:
+            key = f"{grid.key}_r{r}_c{c}"
+            if key in overrides:
+                return overrides[key].strip()
+            if key in clears:
+                return ""
+            return cell.text.strip()
+
+        def row_ok(r: int) -> bool:
+            """채운 뒤 기준으로 빈 행(미리 인쇄된 숫자만 있는 행 포함)인가."""
+            texts = [projected(r, c, cell)
+                     for (rr, c), cell in grid.cells.items() if rr == r]
+            return bool(texts) and all(not t or t.isdigit() for t in texts)
+
+        placed = next((rr for rr in range(target, grid.row_cnt) if row_ok(rr)), None)
+
+        extra.update(clears)
+        if placed is not None:
+            for c, text in marker["cells"]:
+                extra[f"{grid.key}_r{placed}_c{c}"] = text
+            if log:
+                log(f"{grid.key}: '이하빈칸' 마커 r{marker['row']} → r{placed}")
+        elif log:
+            log(f"{grid.key}: 빈 행 없음 — '이하빈칸' 마커 제거 (r{marker['row']})")
+    return extra
+
+
 # ── 셀 채우기 ───────────────────────────────────────
 
 def _set_cell_text(tc, value: str) -> bool:
