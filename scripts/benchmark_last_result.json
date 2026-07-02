@@ -1,0 +1,15 @@
+{
+  "level1": {
+    "correct": 1126,
+    "total": 1126,
+    "diffs": 0
+  },
+  "level2": {
+    "mode": "level2:local",
+    "correct": 495,
+    "total": 495,
+    "accuracy": 100.0,
+    "diffs": [],
+    "result_file": "C:\\Users\\sinbc\\AppData\\Local\\Temp\\bench_zghxy_tq\\LLM채움.hwpx"
+  }
+}

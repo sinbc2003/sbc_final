@@ -33,6 +33,7 @@ class LLMManager:
         search_dirs: list[Path] = []
         if self._models_dir:
             search_dirs.append(self._models_dir / "base")
+        search_dirs.append(Path("C:/Users/sinbc/models/teacherflow"))
         search_dirs.append(Path("D:/models/teacherflow"))
         for d in search_dirs:
             if not d.exists():
@@ -100,8 +101,13 @@ class LLMManager:
         lora: str | None = None,
         provider: str = "auto",
         model: str | None = None,
+        json_schema: dict | None = None,
     ) -> str:
-        """텍스트 생성. provider: auto | local | claude | openai | gemini"""
+        """텍스트 생성. provider: auto | local | claude | openai | gemini
+
+        json_schema가 주어지면: 로컬은 llama-server 스키마 강제 디코딩,
+        API는 프롬프트에 스키마 지시를 덧붙이는 소프트 강제.
+        """
         # provider가 "모델ID/모델명" 형식이면 파싱
         if provider and "/" in provider:
             parts = provider.split("/", 1)
@@ -117,8 +123,17 @@ class LLMManager:
             provider = self._pick_provider()
 
         if provider == "local":
-            return self._generate_local(prompt, max_tokens, temperature, lora)
-        elif provider == "claude":
+            return self._generate_local(prompt, max_tokens, temperature, lora, json_schema=json_schema)
+
+        # API provider: json_schema 소프트 강제 (네이티브 스키마 기능은 미사용)
+        if json_schema:
+            prompt = (
+                prompt
+                + "\n\n반드시 다음 JSON 스키마에 맞는 JSON만 출력하라(설명·마크다운 금지):\n"
+                + json.dumps(json_schema, ensure_ascii=False)
+            )
+
+        if provider == "claude":
             return self._generate_claude(prompt, max_tokens, temperature)
         elif provider == "openai":
             return self._generate_openai(prompt, max_tokens, temperature, model=model)
@@ -282,7 +297,8 @@ class LLMManager:
         )
 
     def _generate_local(
-        self, prompt: str, max_tokens: int, temperature: float, lora: str | None
+        self, prompt: str, max_tokens: int, temperature: float, lora: str | None,
+        json_schema: dict | None = None,
     ) -> str:
         """llama-server HTTP API를 통한 로컬 생성.
 
@@ -309,35 +325,39 @@ class LLMManager:
             else:
                 raise RuntimeError("llama-server 시작 실패 (30초 타임아웃)")
 
-        # Gemma chat 템플릿 적용
-        chat_prompt = (
-            f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n"
-            f"<start_of_turn>model\n"
-        )
-        resp = _req.post(f"{server_url}/completion", json={
-            "prompt": chat_prompt,
-            "n_predict": max_tokens,
+        # OpenAI 호환 /v1/chat/completions 사용 → 모델의 내장 chat 템플릿 자동 적용
+        # (gemma-4 등 최신 모델은 수동 <start_of_turn> 템플릿과 다름. --jinja로 정확 적용)
+        # 사고(reasoning) 모델은 서버가 --reasoning off로 기동되어 기본 비활성.
+        payload: dict = {
+            "model": "local",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
             "temperature": temperature,
-            "stop": ["<end_of_turn>", "<start_of_turn>"],
-        }, timeout=300)
+        }
+        if json_schema:
+            # OpenAI 호환 스키마 강제 디코딩 (llama.cpp가 문법으로 강제)
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": json_schema},
+            }
+        resp = _req.post(f"{server_url}/v1/chat/completions", json=payload, timeout=300)
 
         data = resp.json()
 
-        # 컨텍스트 초과 에러 감지
+        # 오류 감지 (컨텍스트 초과 등)
         if resp.status_code != 200 or data.get("error"):
             err = data.get("error", {})
-            if isinstance(err, dict) and "exceed_context" in err.get("type", ""):
-                n_prompt = err.get("n_prompt_tokens", "?")
-                n_ctx = err.get("n_ctx", "?")
+            msg = err.get("message", "") if isinstance(err, dict) else str(err)
+            if "context" in msg.lower() or "exceed" in msg.lower():
                 model_name = self._local_model or "로컬 모델"
                 raise RuntimeError(
-                    f"컨텍스트 크기 초과: 입력 {n_prompt}토큰 > 모델 한도 {n_ctx}토큰. "
+                    f"컨텍스트 크기 초과: {msg}. "
                     f"모델({model_name})의 컨텍스트가 부족합니다. "
                     f"텍스트를 줄이거나, 설정에서 컨텍스트 크기를 늘리거나, API LLM을 사용하세요."
                 )
             raise RuntimeError(f"llama-server 오류: {resp.status_code} {resp.text[:300]}")
 
-        return data.get("content", "").strip()
+        return (data["choices"][0]["message"].get("content") or "").strip()
 
     def _start_llama_server(self):
         """llama-server를 백그라운드로 시작."""
@@ -349,18 +369,32 @@ class LLMManager:
             )
 
         server_bin = "llama-server"
-        for candidate in ["D:/models/llama_cpp/bin/llama-server.exe", "llama-server"]:
+        for candidate in [
+            "C:/Users/sinbc/llama_cpp/llama-server.exe",
+            "D:/models/llama_cpp/bin/llama-server.exe",
+            "llama-server",
+        ]:
             if Path(candidate).exists():
                 server_bin = candidate
                 break
 
+        # 컨텍스트 크기: 설정값(local_ctx) 우선, 없으면 메모리 프로필 권장값
+        ctx = profile.recommended_ctx
+        if self._config.get("local_ctx"):
+            ctx = int(self._config["local_ctx"])
+
+        # 0.0.0.0 바인딩: goe 요약기(Mac1 cmd센터)가 Tailscale로 같은 서버를 공유.
+        # --jinja: 모델 내장 chat 템플릿 사용, --reasoning off: 사고모델 기본 비활성(속도).
+        # -np 1: 슬롯 1개. Arc 등 8GB급 GPU에서 다중 슬롯 KV캐시가 VRAM을 초과해
+        # Vulkan device-lost로 죽는 것을 방지 (구형 노트북 배포 안정성).
         cmd = [
             server_bin,
             "-m", str(model_path),
-            "--host", "127.0.0.1", "--port", "8400",
-            "-c", str(min(profile.recommended_ctx, 4096)),
+            "--host", "0.0.0.0", "--port", "8400",
+            "-c", str(ctx),
+            "-np", "1",
             "-ngl", "99",
-            "--log-disable",
+            "--jinja", "--reasoning", "off",
         ]
         self._local_process = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -421,7 +455,8 @@ class LLMManager:
         search_dirs: list[Path] = []
         if self._models_dir:
             search_dirs.append(self._models_dir / "base")
-        # D드라이브 모델 경로 (C: 공간 부족 대비)
+        # 사용자 홈 모델 경로 + D드라이브 모델 경로 (C: 공간 부족 대비)
+        search_dirs.append(Path("C:/Users/sinbc/models/teacherflow"))
         search_dirs.append(Path("D:/models/teacherflow"))
 
         q_lower = quant.lower()

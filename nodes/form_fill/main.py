@@ -275,40 +275,47 @@ def _fill_hwpx(form_path: str, fill_data: dict, output_path: str, context):
 
     context["log"]("HWPX 양식에 값 주입 중...")
 
-    # HWPX = ZIP 파일. 원본 복사 후 section XML만 수정
-    shutil.copy2(form_path, output_path)
+    # ── 그리드 좌표 ID 경로 (form_extract의 병합-인지 그리드와 짝) ──
+    # fill_data 키가 "s0_t1_r4_c2" 형식이면 셀 주소로 정확히 주입
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from engine.hwpml.hwpx_grid import ID_RE, fill_hwpx_cells
 
-    # 빈칸 ID → 값 매핑 구축
-    # fill_data 형태: {"hwpx_1": "값", "hwpx_field_2": "값", ...}
-    # 또는 {"label": "값"} 형태
-
-    # field_name 기반 매핑
-    field_map = {}   # field_name → value
-    label_map = {}   # label → value
+    grid_map = {}
+    legacy_map = {}
     for key, value in fill_data.items():
         if isinstance(value, dict):
             value = value.get("value", "")
-        field_map[key] = str(value)
-        label_map[key] = str(value)
+        if ID_RE.match(str(key).strip()):
+            grid_map[str(key).strip()] = str(value)
+        else:
+            legacy_map[key] = str(value)
 
     filled = 0
+    if grid_map:
+        filled += fill_hwpx_cells(form_path, output_path, grid_map, log=context["log"])
+        # 이후 legacy 처리는 방금 쓴 output을 입력으로
+        work_input = output_path
+    else:
+        work_input = form_path
 
-    with zipfile.ZipFile(form_path, "r") as zf_in:
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf_out:
-            for item in zf_in.infolist():
-                data = zf_in.read(item.filename)
-
-                if "section" in item.filename.lower() and item.filename.endswith(".xml"):
-                    # section XML 수정
-                    try:
-                        root = etree.fromstring(data)
-                        count = _fill_hwpx_section(root, field_map, label_map)
-                        filled += count
-                        data = etree.tostring(root, xml_declaration=True, encoding="UTF-8")
-                    except etree.XMLSyntaxError:
-                        pass
-
-                zf_out.writestr(item, data)
+    # ── legacy 경로: 누름틀 필드명 / 라벨 휴리스틱 ──
+    if legacy_map or not grid_map:
+        shutil.copy2(work_input, output_path + ".tmp")
+        with zipfile.ZipFile(output_path + ".tmp", "r") as zf_in:
+            with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf_out:
+                for item in zf_in.infolist():
+                    data = zf_in.read(item.filename)
+                    if legacy_map and "section" in item.filename.lower() and item.filename.endswith(".xml"):
+                        try:
+                            root = etree.fromstring(data)
+                            count = _fill_hwpx_section(root, legacy_map, legacy_map)
+                            filled += count
+                            data = etree.tostring(root, xml_declaration=True, encoding="UTF-8")
+                        except etree.XMLSyntaxError:
+                            pass
+                    zf_out.writestr(item, data)
+        os.remove(output_path + ".tmp")
 
     context["log"](f"HWPX {filled}개 필드 주입 완료")
 

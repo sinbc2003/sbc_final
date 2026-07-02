@@ -182,18 +182,39 @@ async def live_skill(app_type: str):
             hwp.release_scan()
             doc_text = page_info + "\n\n" + "\n".join(parts)
             from engine.hwp_controller import DocumentScanner, BlockManager, HwpEditor
-            scanner = DocumentScanner(hwp)
-            elements = scanner.scan()
-            bm = BlockManager()
-            bm.initialize_from_scan(elements)
-            cvd_text = bm.to_cvd_text()
-            if cvd_text:
-                doc_text += f"\n\n=== 블록 ID 매핑 (block_id 기반 편집용) ===\n{cvd_text}"
+            import logging
+            _logger = logging.getLogger("live")
+
+            # HwpController 싱글턴에 연결 공유 → extract_cvd가 이 연결을 재사용,
+            # 이후 편집(execute)도 같은 상태 사용. scanner/editor는 현재 hwp로 재바인딩.
             ctrl._hwp = hwp
             ctrl._connected = True
-            ctrl._scanner = scanner
-            ctrl._block_manager = bm
-            ctrl._editor = HwpEditor(hwp, bm)
+            ctrl._scanner = DocumentScanner(hwp)
+            ctrl._editor = HwpEditor(hwp, ctrl._block_manager)
+
+            # CVD 스캔 — HWPML 우선(병합/스타일 보존), 실패 시 커서 스캔 폴백.
+            # extract_cvd(mode="auto")가 내부에서 BlockManager 초기화까지 수행.
+            cvd_text = ""
+            try:
+                result = ctrl.extract_cvd(mode="auto")
+                if result.get("cvd") and not result.get("error"):
+                    cvd_text = result["cvd"]
+                else:
+                    _logger.warning(f"live_skill: extract_cvd 결과 없음 — 커서 스캔 폴백: {result.get('error')}")
+            except Exception as e_cvd:
+                _logger.warning(f"live_skill: extract_cvd 예외 — 커서 스캔 폴백: {e_cvd}")
+            if not cvd_text:
+                # 폴백: 기존 커서 스캔 경로 (BlockManager 상태도 함께 갱신)
+                scanner = DocumentScanner(hwp)
+                elements = scanner.scan()
+                bm = BlockManager()
+                bm.initialize_from_scan(elements)
+                cvd_text = bm.to_cvd_text()
+                ctrl._scanner = scanner
+                ctrl._block_manager = bm
+                ctrl._editor = HwpEditor(hwp, bm)
+            if cvd_text:
+                doc_text += f"\n\n=== 블록 ID 매핑 (block_id 기반 편집용) ===\n{cvd_text}"
             return doc_text
         try:
             content = await deps.run_on_com(_hwp_read_and_scan)

@@ -519,13 +519,43 @@ def _read_with_cvd(app_type: str, live_controller) -> str:
             hwp.release_scan()
             doc_text = "\n".join(parts)
 
+            # HwpController 싱글턴에 연결 공유 → extract_cvd가 이 연결을 재사용,
+            # 이후 편집(execute)도 같은 상태 사용. scanner/editor는 현재 hwp로 재바인딩(stale 참조 방지).
+            ctrl._hwp = hwp
+            ctrl._connected = True
+            ctrl._scanner = DocumentScanner(hwp)
+            ctrl._editor = HwpEditor(hwp, ctrl._block_manager)
+
+            def _scan_cvd():
+                """CVD 스캔 — HWPML 우선(병합/스타일 보존), 실패 시 커서 스캔 폴백.
+
+                extract_cvd(mode="auto")가 내부에서 BlockManager 초기화까지 수행하므로
+                이후 block_id 기반 편집이 그대로 동작한다.
+                Returns: (cvd_text, block_count, scan_mode)
+                """
+                try:
+                    result = ctrl.extract_cvd(mode="auto")
+                    if result.get("cvd") and not result.get("error"):
+                        return result["cvd"], result.get("block_count", 0), result.get("scan_mode", "?")
+                    _logger.warning(f"_read_with_cvd: extract_cvd 결과 없음 — 커서 스캔 폴백: {result.get('error')}")
+                except Exception as e_cvd:
+                    _logger.warning(f"_read_with_cvd: extract_cvd 예외 — 커서 스캔 폴백: {e_cvd}")
+                # 폴백: 기존 커서 스캔 경로 (BlockManager 상태도 함께 갱신)
+                scanner = DocumentScanner(hwp)
+                elements = scanner.scan()
+                bm = BlockManager()
+                bm.initialize_from_scan(elements)
+                ctrl._scanner = scanner
+                ctrl._block_manager = bm
+                ctrl._editor = HwpEditor(hwp, bm)
+                return bm.to_cvd_text(), len(elements), "cursor"
+
             # CVD 스캔
-            scanner = DocumentScanner(hwp)
-            elements = scanner.scan()
+            cvd_text, block_count, scan_mode = _scan_cvd()
 
             # 빈 문서 감지: 블록 ≤2개이면 다른 문서로 전환 시도
-            if len(elements) <= 2:
-                _logger.warning(f"_read_with_cvd: 블록 {len(elements)}개 — 빈 문서 감지")
+            if block_count <= 2:
+                _logger.warning(f"_read_with_cvd: 블록 {block_count}개 — 빈 문서 감지")
                 switched = False
                 try:
                     xdocs = hwp.XHwpDocuments
@@ -551,8 +581,7 @@ def _read_with_cvd(app_type: str, live_controller) -> str:
                                 # 이 문서로 재스캔
                                 parts = parts[:1] + test_parts
                                 doc_text = "\n".join(parts)
-                                scanner = DocumentScanner(hwp)
-                                elements = scanner.scan()
+                                cvd_text, block_count, scan_mode = _scan_cvd()
                                 switched = True
                                 break
                 except Exception as e2:
@@ -560,21 +589,10 @@ def _read_with_cvd(app_type: str, live_controller) -> str:
                 if not switched:
                     _logger.warning("_read_with_cvd: 모든 문서가 비어있거나 전환 실패")
 
-            bm = BlockManager()
-            bm.initialize_from_scan(elements)
-            cvd_text = bm.to_cvd_text()
-
-            _logger.info(f"_read_with_cvd: {len(elements)}개 블��� 스캔, CVD {len(cvd_text) if cvd_text else 0}자")
+            _logger.info(f"_read_with_cvd: {block_count}개 블록 스캔({scan_mode}), CVD {len(cvd_text) if cvd_text else 0}자")
 
             if cvd_text:
                 doc_text += f"\n\n=== 블록 ID 매핑 (block_id 기반 편집용) ===\n{cvd_text}"
-
-            # HwpController 싱글턴에 저장 → 이후 편집 시 사용
-            ctrl._hwp = hwp
-            ctrl._connected = True
-            ctrl._scanner = scanner
-            ctrl._block_manager = bm
-            ctrl._editor = HwpEditor(hwp, bm)
 
             return doc_text
         except Exception as e:

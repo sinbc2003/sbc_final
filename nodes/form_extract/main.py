@@ -317,72 +317,43 @@ def _get_raw_context(cell_data: dict, row: int, col: int) -> str:
 # ── HWPX ─────────────────────────────────────────────
 
 def _extract_hwpx(path: str, include_filled: bool, context) -> tuple[list, str]:
+    """병합-인지 그리드 추출 (engine/hwpml/hwpx_grid).
+
+    표를 (행,열) 그리드 + 병합 맵으로 해석하고, 빈칸마다 행헤더×열헤더를
+    코드로 계산한다. LLM은 의미 매칭만 하면 된다.
+    셀 ID 형식: s{섹션}_t{표}_r{행}_c{열} — form_fill과 공유하는 주소 체계.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from engine.hwpml.hwpx_grid import parse_hwpx, extract_blank_fields
+
+    context["log"]("HWPX 양식 분석 중 (병합-인지 그리드)...")
+
+    doc = parse_hwpx(path)
+    fields = extract_blank_fields(doc, include_filled=include_filled)
+    full_text = doc.render_text(mark_blanks=True)
+
+    # 누름틀(폼 필드)은 그리드와 별개로 보존
     from lxml import etree
-
-    context["log"]("HWPX 양식 분석 중...")
-
-    NS = {
-        "hp": "http://www.hancom.co.kr/hwpml/2011/paragraph",
-        "hs": "http://www.hancom.co.kr/hwpml/2011/section",
-        "hc": "http://www.hancom.co.kr/hwpml/2011/core",
-    }
-
-    fields = []
-    text_parts = []
     field_id = 0
-
     with zipfile.ZipFile(path, "r") as zf:
-        # section XML 파일 탐색
         section_files = sorted(
             [n for n in zf.namelist() if "section" in n.lower() and n.endswith(".xml")]
         )
-
         for sec_file in section_files:
-            xml_data = zf.read(sec_file)
             try:
-                root = etree.fromstring(xml_data)
+                root = etree.fromstring(zf.read(sec_file))
             except etree.XMLSyntaxError:
                 continue
-
-            # 모든 텍스트 노드 순회
-            paragraphs = root.iter()
-            prev_text = ""
-
-            for elem in paragraphs:
-                tag = etree.QName(elem.tag).localname if "}" in elem.tag else elem.tag
-
-                # 텍스트 런
-                if tag == "t":
-                    t = elem.text or ""
-                    text_parts.append(t)
-
-                    is_empty = t.strip() == ""
-
-                    if is_empty or include_filled:
-                        # 빈 텍스트 필드 — 이전 텍스트를 라벨로 사용
-                        if is_empty and prev_text.strip():
-                            field_id += 1
-                            fields.append({
-                                "id": f"hwpx_{field_id}",
-                                "label": prev_text.strip()[-30:],
-                                "context": prev_text.strip()[-100:],
-                                "xpath": sec_file,
-                                "current_value": t,
-                                "is_empty": True,
-                                "value_type": "text",
-                            })
-
-                    if t.strip():
-                        prev_text = t
-
-                # 누름틀 (폼 필드) — 한/글의 입력 양식
+            for elem in root.iter():
+                tag = etree.QName(elem.tag).localname if "}" in str(elem.tag) else str(elem.tag)
                 if tag in ("fieldBegin", "FIELDBEGIN"):
                     name = elem.get("name", "") or elem.get("Name", "")
                     field_id += 1
                     fields.append({
                         "id": f"hwpx_field_{field_id}",
                         "label": name or f"필드{field_id}",
-                        "context": prev_text.strip()[-100:] if prev_text else "",
+                        "context": "",
                         "field_name": name,
                         "xpath": sec_file,
                         "current_value": "",
@@ -390,7 +361,8 @@ def _extract_hwpx(path: str, include_filled: bool, context) -> tuple[list, str]:
                         "value_type": "field",
                     })
 
-    return fields, "\n".join(text_parts)
+    context["log"](f"표 {len(doc.tables)}개, 그리드 빈칸 {sum(1 for f in fields if f.get('value_type') == 'text')}개")
+    return fields, full_text
 
 
 # ── HWP (COM) ────────────────────────────────────────
