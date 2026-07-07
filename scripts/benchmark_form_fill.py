@@ -20,6 +20,7 @@
 
 import argparse
 import json
+import os
 import re
 import sys
 import tempfile
@@ -34,8 +35,22 @@ from engine.hwpml.hwpx_grid import (  # noqa: E402
     find_below_marker, relocate_below_markers,
 )
 
-ORIGINAL = (r"C:\Users\sinbc\OneDrive\바탕 화면"
+def _resolve_original() -> str:
+    """벤치마크 기준 hwpx 위치 — 이식성 있게 해결.
+
+    우선순위: 환경변수 BENCH_HWPX > 프로젝트 내 fixtures 사본 > 노트북 원본 경로.
+    """
+    env = os.environ.get("BENCH_HWPX")
+    if env and Path(env).exists():
+        return env
+    fixture = ROOT / "data" / "fixtures" / "bench_score.hwpx"
+    if fixture.exists():
+        return str(fixture)
+    return (r"C:\Users\sinbc\OneDrive\바탕 화면"
             r"\2024학년도 기간제 교사 채용 점수 집계표(역사, 체육, 러시아어, 프랑스어).hwpx")
+
+
+ORIGINAL = _resolve_original()
 
 # "이하 빈칸" 마커 글자 (한 셀에 한 글자씩 흩어져 있음) — LLM 벤치마크에선 제외
 MARKER_CHARS = {"이", "하", "빈", "칸"}

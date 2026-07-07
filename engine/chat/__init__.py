@@ -1,11 +1,7 @@
-"""채팅 기반 워크플로우 자동 생성 + 라이브 문서 제어 — engine.chat 패키지 facade.
+"""채팅 처리 패키지 — intake(입력분석)/workflow(생성)/live_chat(문서제어).
 
-770줄 단일 파일을 engine/chat/ 로 모듈화(관심사 3분리):
-    chat/intake.py     양식 의도 감지·파일/지시문 추출
-    chat/workflow.py   handle_chat(워크플로우 생성) + 양식 assist
-    chat/live_chat.py  handle_live_chat(라이브 COM 제어)·CVD 읽기·액션 파싱
-
-기존 import를 그대로 유지하기 위한 재노출.
+외부는 기존처럼 `from engine.chat_handler import handle_chat, handle_live_chat, ...`
+로 접근(facade).
 """
 
 from engine.chat.intake import (

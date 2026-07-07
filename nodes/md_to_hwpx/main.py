@@ -709,6 +709,24 @@ def _compute_table_merges(matrix: list) -> list:
     return merges
 
 
+# 공문/통신문 표 헤더 음영 (연한 파랑-회색 — 검정 글씨 가독성 유지, 한글 공문서 관례)
+TABLE_HEADER_SHADE = "#D9E1F2"
+
+
+def _table_column_weights(matrix: list) -> list:
+    """열별 최대 텍스트 길이에 비례한 상대 너비 가중치 (한글/전각=2, 최소 3).
+
+    라벨 열은 좁게·내용 열은 넓게 — 모든 열 균등폭이라 '구려' 보이던 문제 해소.
+    """
+    n_c = max((len(r) for r in matrix), default=0)
+    weights = [1.0] * n_c
+    for row in matrix:
+        for c in range(min(len(row), n_c)):
+            length = sum(2 if ord(ch) > 0x2E80 else 1 for ch in str(row[c]))
+            weights[c] = max(weights[c], float(length))
+    return [max(w, 3.0) for w in weights]
+
+
 def _clean_inline_md(text: str) -> str:
     """셀/리스트용 인라인 마크다운 제거 (서식은 버리고 텍스트만)."""
     text = re.sub(r"`([^`]*)`", r"\1", text)
@@ -781,10 +799,14 @@ def _md_to_builder_children(md_text: str) -> list:
             if not matrix:
                 continue
             merges = _compute_table_merges(matrix)
+            widths = _table_column_weights(matrix)
             if has_header:
-                children.append(Table(header=matrix[0], rows=matrix[1:], merges=merges))
+                children.append(Table(
+                    header=matrix[0], rows=matrix[1:], merges=merges,
+                    header_shading=TABLE_HEADER_SHADE, column_widths=widths,
+                ))
             else:
-                children.append(Table(rows=matrix, merges=merges))
+                children.append(Table(rows=matrix, merges=merges, column_widths=widths))
             continue
 
         m = re.match(r"^[-*·]\s+(.+)$", s)
@@ -838,6 +860,37 @@ def _convert_with_python_hwpx(md_text: str, output_path: str) -> str | None:
         return None
 
 
+def _md_has_table(md: str) -> bool:
+    """마크다운에 GFM 파이프 표가 있는지 (헤더줄 + --- 구분줄)."""
+    return bool(re.search(r"^\s*\|.*\|\s*\n\s*\|?\s*:?-{2,}", md, re.M))
+
+
+def _hwpx_has_table(path: str) -> bool:
+    """생성된 hwpx에 표(hp:tbl)가 실제로 들어갔는지."""
+    try:
+        import zipfile
+        with zipfile.ZipFile(path) as z:
+            for n in z.namelist():
+                if "section" in n.lower() and n.endswith(".xml") and b"<hp:tbl" in z.read(n):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _table_fidelity_ok(result, raw_md: str) -> bool:
+    """변환 성공이고 (표가 있었다면) 표가 보존됐는지. 표 누락이면 False → 다음 변환기로 폴백.
+
+    pypandoc-hwpx가 마크다운 표를 드롭하는 사례가 있어(실측), 표 있는 문서는
+    표를 보존하는 python-hwpx 경로로 넘긴다.
+    """
+    if not result:
+        return False
+    if _md_has_table(raw_md) and not _hwpx_has_table(result):
+        return False
+    return True
+
+
 def execute(inputs: dict, params: dict, context: dict) -> dict:
     raw_md = inputs["텍스트"]
     output_name = params.get("output_name", "output")
@@ -849,17 +902,19 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     # 전처리는 pypandoc-hwpx/kordoc 경로 전용 (알려진 버그 회피 — 빈 셀 '.' 치환 포함)
     md_text = _preprocess_md_for_hwpx(raw_md)
 
-    # 1순위: pypandoc-hwpx (Pandoc AST 기반, 가장 정확)
+    # 1순위: pypandoc-hwpx (Pandoc AST 기반, 가장 정확) — 단, 표 누락 시 폴백
     result = _convert_with_pypandoc_hwpx(md_text, output_path)
-    if result:
+    if _table_fidelity_ok(result, raw_md):
         context["log"]("pypandoc-hwpx로 변환 완료")
         context["progress"](1.0)
         return {"파일": result}
+    if result:
+        context["log"]("pypandoc-hwpx 표 누락 감지 — python-hwpx로 폴백")
 
     # 2순위: kordoc CLI
     context["log"]("pypandoc-hwpx 미설치, kordoc 시도")
     result = _convert_with_kordoc(md_text, output_path)
-    if result:
+    if _table_fidelity_ok(result, raw_md):
         context["log"]("kordoc로 변환 완료")
         context["progress"](1.0)
         return {"파일": result}

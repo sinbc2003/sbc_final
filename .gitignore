@@ -40,6 +40,8 @@ data/autosave/
 data/uploads/
 data/marketplace_cache/
 data/training/
+# 벤치·데모 산출물 + 실명 PII(채용점수표) — 커밋 금지
+data/fixtures/
 
 # ── Installers / binaries ──
 *.msi

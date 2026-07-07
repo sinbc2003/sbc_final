@@ -3,24 +3,20 @@
 > 작성: 2026-07-02 / 프로젝트: TeacherFlow (`C:\Users\sinbc\OneDrive\바탕 화면\00_sbc_final`)
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
-> ## ⏩ 다음 세션은 여기부터 (2026-07-02 밤 갱신)
-> **§10~§10.8(맨 아래 작업 기록)을 먼저 읽어라.** §1~§7은 배경 설명 — "즉시 고칠 것/★" 표시는 전부 완료됐다.
+> ## ⏩ 다음 세션은 여기부터 (2026-07-08 Desktop 갱신)
+> **다음 작업 = §14 「노드/엣지/워크플로우 전면 점검·개선」** (사용자 지시, 새 세션 시작). 환경·실행법은 §11, 최근 완료는 §12·13.
+> ⚠️ 이 프로젝트는 이제 **Desktop(`C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final`, RTX5080)** 에서 작업. 노트북(sinbc) 경로/§10.6 goe_watcher 이슈는 Desktop엔 **해당 없음**.
 >
-> **완료 (전부 git 커밋됨, 최신 0ecc766)**:
-> - 1단계 전체(§10): 병합-인지 그리드 파이프라인, 벤치마크 레벨2 로컬 495/495, 모델 Gemma 4 E4B 확정
-> - "이하빈칸" 마커 자동 이동 + 한/글 육안 검증 (§10.5, 마커 벤치 1126/1126)
-> - md_to_hwpx "파일 손상" 해결 — python-hwpx 경로 추가 (§10.7)
-> - goe 마감일 연도 보정 — Mac1 배포 완료 (§10.8)
-> - 라이브 채팅 실전 데모 시도 → 차단 요인 3개 실측 기록 (§10.6: goe_watcher kill / watcher 중복 / VRAM 부족)
+> **Desktop에서 완료 (2026-07-08)**:
+> - 로컬 gemma(E4B Q3) 벤치 495/495 Desktop 재현 + 엔진 부팅 (§11)
+> - 라이브 COM 실증: 한/글 문단편집·엑셀 수식표·복잡 병합표(신병철 채용1위) (§11 데모)
+> - `llm_manager.generate_chat` 로컬 분기 추가 → 라이브 로컬 LLM 성공 (§11)
+> - 코드 모듈화: `live_controller`→`engine/live/`, `hwp_controller`→`engine/hwp/`, `chat_handler`→`engine/chat/` (무중단 facade) (§12)
+> - 새 문서 생성 검증 + md_to_hwpx 표드롭 버그 수정 + 표 디자인(헤더음영·열너비) 개선 (§13)
 >
-> **다음 작업 선택지**:
-> - 메모리 부족할 때(로컬 LLM 불가): ① **blockId→COM 캘리브레이션** (§5 gap#2, 한/글만 필요) ② 증류용 공문서 익명화 스크립트 (원본 문서 위치를 사용자에게 먼저 물어볼 것)
-> - 메모리 여유 생기면: ③ llama-server 상시 서비스 분리 (§10.6 원인1 근본 해결 — goe 토글은 '요청 여부'만 제어하게) ④ 라이브 채팅 로컬 재검증 ⑤ 노드 UI E2E(form_extract→LLM local→form_fill) ⑥ goe 연도 보정 실측
->
-> **환경 주의사항**:
-> - goe_watcher(이 노트북 pythonw)가 llama-server 라이프사이클을 쥐고 있음 — CC 토글 off면 서버를 계속 kill (§10.6). 로컬 LLM 쓰려면 토글 on: `curl -X POST http://100.96.68.48:8080/api/goe/gemma -H "Content-Type: application/json" -d '{"desired":"on"}'`
-> - Arc 140V는 공유 메모리 → run_fig 같은 무거운 작업과 로컬 LLM 동시 실행 불가 (모델 로드조차 실패)
-> - goe_watcher 자동시작이 중복 2개였음(1개 정리함) — 시작프로그램 등록 중복 여부 확인 필요
+> **테스트 모델**: Gemma 3n **E4B**(유효 4B). E2B(2B) 미검증 — §13 끝 참고.
+> **Git**: 원격 `github.com/sinbc2003/sbc_final`. `data/fixtures/`(PII·데모)는 .gitignore.
+> **환경 주의**: C: 꽉 참(모델·llama.cpp는 D:). llama-server는 엔진이 자동기동. 공유 GPU라 작업 후 종료로 VRAM 반납.
 
 ---
 
@@ -373,3 +369,131 @@
 - LLM: `engine/llm_manager.py`, `engine/memory_manager.py`
 - 노드: `nodes/form_extract/`, `nodes/form_fill/`, `nodes/llm_generate/`, `nodes/md_to_hwpx/`
 - 벤치마크: `scripts/benchmark_form_fill.py` (기준 파일: 바탕화면 채용점수표 hwpx)
+
+---
+
+## 11. 작업 기록 — 2026-07-08 (Desktop 이식·검증 ✅ + inline-ai v0.4.4 관찰)
+
+> 이 프로젝트를 노트북 → **Desktop(coka_desktop, Ryzen 9800X3D 64GB, RTX5080 16GB)** 으로 복사해온 뒤, 로컬 gemma 파이프라인이 이 데스크톱에서 동작하는지 검증. 경로: `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final`.
+
+### 🎯 헤드라인: Desktop에서 로컬 gemma 벤치마크 495/495 (100%) 재현 + 엔진 제품 부팅 확인
+노트북(Arc 140V)에서만 검증됐던 파이프라인이 **Desktop RTX5080 CUDA에서도 100% 동일 재현**. Q3_K_S(노트북 Q4_K_M보다 더 공격적인 양자화)로도 495/495.
+
+### Desktop 환경 (실측)
+- **llama.cpp**: `D:\models\llama_cpp\bin\llama-server.exe` (CUDA 빌드, ggml-cuda.dll). RTX5080 = compute capability 12.0(Blackwell/sm_120) 정상 인식·로드. 43/43 레이어 GPU 오프로드, VRAM ~7.7GB.
+- **모델**: `D:\models\teacherflow\gemma-4-E4B-it-Q3_K_S.gguf` (3.68GB). ※ 노트북은 Q4_K_M. **llm_manager 검색경로에 `D:/models/teacherflow` + `D:/models/llama_cpp/bin/llama-server.exe`가 이미 있어 코드 수정 없이 인식됨.**
+- **속도**: 웜업 후 **110~131 tok/s** (첫 요청은 CUDA 그래프 웜업으로 ~24s 콜드스타트). 노트북 대비 압도적.
+- **Python**: 3.10.11 (`C:\Users\PC\AppData\Local\Programs\Python\Python310`). 핵심 의존성 전부 설치됨(fastapi 0.129, uvicorn, pymupdf, pandas, python-hwpx 2.10.3, tabulate, psutil, pyyaml). requirements.txt엔 fastapi/uvicorn/python-hwpx 누락 — 별도 설치 상태.
+- **한/글**: Office 2018/2020/2024 설치됨 → 라이브 COM 제어 가능. `WOW6432Node\HNC\Hwp` 등록됨.
+- **디스크**: C: 3.8GB만 여유(꽉 참) → 모델·llama.cpp는 반드시 D:(59GB)/E:(357GB)에. C:에 큰 파일 금지.
+
+### 검증 결과
+- **스모크**: `/v1/chat/completions` + `response_format:json_schema` → 한글 이름·점수 4개 배열 정확 추출(홍길동/김철수/이영희). 콘솔 표시만 cp949로 깨지고 파일(UTF-8)은 정상.
+- **벤치마크** (`scripts/benchmark_form_fill.py --llm local`): 레벨1 왕복 1126/1126, 마커 1126/1126, **레벨2 로컬 gemma 495/495 (100%)**. 8개 표(러시아어·프랑스어·역사 28명·체육 12명, 1·2차) 전부 정확.
+- **엔진 제품 부팅** (`python -m engine.server`, ENGINE_PORT=8407): uvicorn 정상, 58개 라우트, `/api/models`가 로컬 gemma 인식, `/api/system` recommended_quant=Q6(RAM 61.6GB) 보고.
+
+### 이식 수정 (최소 diff)
+- `scripts/benchmark_form_fill.py`: `ORIGINAL` 하드코딩(노트북 바탕화면 경로) → `_resolve_original()`로 교체. 우선순위 **환경변수 `BENCH_HWPX` > `data/fixtures/bench_score.hwpx` > 노트북 원본**. `import os` 추가. → 노트북/데스크톱 어디서나 동작.
+- 기준 hwpx는 노트북에서 scp로 가져와 `data/fixtures/bench_score.hwpx`에 배치(81555B). (노트북 100.89.219.102 SSH 접근 확인됨.)
+- **`engine/llm_manager.py`: `generate_chat`에 로컬 분기 신규 추가** (§10.6·2단계 TODO 해결). 기존엔 provider=local이 fallback으로 빠져 messages를 `[role] content` 문자열로 뭉개 단일 user로 보냄 → 스킬 시스템 프롬프트의 역할 소실. 이제 `_generate_local_chat()`이 messages 역할 배열을 `/v1/chat/completions`에 직통 → 내장 chat 템플릿이 system/user 정확 적용. 서버기동/호출 로직은 `_ensure_local_server()`/`_local_chat_completion()`로 공통화(기존 `_generate_local` 동작 불변). **이 수정이 라이브 로컬 LLM 성공의 핵심.**
+
+### 라이브 COM 데모 ✅ (로컬 gemma가 실제 한/글 편집 — §10.6 미검증 항목 해결)
+**노트북에서 3대 차단요인(goe_watcher kill / watcher 중복 / VRAM)으로 못 했던 라이브 로컬 LLM 편집을 Desktop에서 성공.**
+- 흐름(실제 코드 경로 `chat_handler.handle_live_chat` 그대로): 한/글에 안내문 3문단 초안 생성 → `_read_with_cvd`가 스캔→block_id CVD 매핑(`<1>여름방학 안내` …) → 로컬 gemma가 편집 지시 이해 → 액션 JSON 생성 → COM 실행 → 검증.
+- 지시 "제목을 '2026학년도 여름방학 생활 안내 가정통신문'으로 바꿔줘" → gemma 출력 `[{"action":"replace_paragraph","params":{"block_id":"1","new_text":"2026학년도 여름방학 생활 안내 가정통신문"}}]` (block_id 정확 식별) → 실행 성공("문단 교체 완료") → 편집 후 제목 실제 변경 확인.
+- 결과 파일: `data/fixtures/live_demo_result.hwpx` (재파싱 검증: 편집 제목 포함 True, 원제목 잔존 False). 데모 스크립트: 세션 scratchpad `live_demo.py`.
+- **의의**: inline-ai의 "포인터 훑기 → blockId → 정확히 채우기" 라이브 편집을 **소형 로컬 gemma(Q3)로 재현**. blockId 시스템이 모델에게 떠먹여 주므로 Q3로도 액션 JSON 정확 생성(§2 설계 가설 실증). HWP 자동화 보안모듈 `FilePathCheckerModule`(pyhwpx) 등록돼 있어 대화상자 없음.
+
+### Desktop에서 실행법 (다음 세션용)
+```
+# 1) 로컬 LLM 서버 (엔진이 자동 기동하나 수동도 가능)
+D:\models\llama_cpp\bin\llama-server.exe -m D:\models\teacherflow\gemma-4-E4B-it-Q3_K_S.gguf \
+  --host 127.0.0.1 --port 8400 -c 8192 -np 1 -ngl 99 --jinja --reasoning off
+# 2) 벤치마크(로컬 gemma)
+set PYTHONUTF8=1 && python scripts\benchmark_form_fill.py --llm local
+# 3) 엔진 서버
+set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://127.0.0.1:8407/docs
+```
+- RTX5080은 전용 16GB VRAM → 노트북 §10.6의 라이브 로컬 LLM 3대 차단요인(goe_watcher kill / watcher 중복 / VRAM부족) **전부 해당 없음**. 라이브 COM 데모의 최적 환경.
+
+### 라이브 다중액션·엑셀·복잡표 데모 ✅ (2026-07-08 추가 — 로컬 gemma)
+- **엑셀 라이브(win32com)**: `LiveController.connect("excel")`(pywin32) + `handle_live_chat(app_type="excel", provider=local)`. gemma가 "성적표 만들어줘(3명·총점/평균)" → 8액션(set_cell/set_cells×3/format_range/border/auto_fit) 생성, **총점=`=SUM(B3:D3)`·평균=`=AVERAGE(B3:D3)` 수식 사용**(계산은 Excel에 위임 = 설계 철학 그대로) → 8/8 실행 성공, Excel이 255/273/245 실계산. 결과 `D:\성적표_엑셀라이브데모.xlsx`. ※ xlwings 0.36.8 설치했으나 실제 라이브 경로는 win32com. (설치 inline-ai v0.4.4는 xlwings 사용 — 열린 엑셀 실시간엔 어느 쪽이든 가능.)
+- **복잡 병합표 채우기(신병철 데모)**: `D:\2024...채용점수표.hwpx`의 역사 2차 최종표(t13)에 가상인물 '신병철'을 채용 1위로 완성. gemma가 자연어 점수설명→JSON 파싱(의미 매칭), 코드가 소계/평균/합계 계산·순위 재산정(신1·김화평2·이진숙3·오승택4)·최종선정자 교체·이하빈칸 마커 이동. `fill_hwpx_cells`(결정적 그리드, COM-free) 18/18 주입, 재파싱 검증 True. 결과 `D:\신병철_역사_채용1위.hwpx`(한/글 정상 열림). → **복잡 병합표는 라이브 COM(§5 약점)이 아니라 검증된 그리드 경로로 채우는 게 정답**(벤치 495/495와 동일 경로). 라이브 COM은 단순 인플레이스 편집용.
+- 데모 스크립트(세션 scratchpad): `live_demo.py`(HWP 문단), `build_shin.py`(신병철 표), `excel_demo.py`(엑셀).
+
+### 권장 다음 작업 (Desktop 우위 활용)
+- **모델 품질 업그레이드**: Q3_K_S(현재) → Q4_K_M(벤치 검증본) 또는 Q6(RAM 프로필 권장). 16GB VRAM 여유 충분. 어려운 실전 문서 대비 헤드룸. (`-np`는 전용 GPU라 2~4로 올려도 안전.)
+- **HTTP E2E**: 위 데모는 `handle_live_chat` 직호출(단일 COM 스레드). `/api/chat/live` HTTP 엔드포인트로 프론트 연결 E2E 검증 남음.
+- **3단계 LoRA 증류**: RTX5080이 학습 장비(§8 3단계). 이 데스크톱이 그 작업의 본진.
+
+### inline-ai v0.4.4 관찰 (리버싱 아님 — 설치본 구조만 확인)
+설치본 `C:\Users\PC\AppData\Local\Programs\inline-ai\` = **v0.4.4** (RE 문서는 v0.2.12/v0.3.1 기준, 2버전 최신). 워커 4개로 재편(파일/폴더 구조 관찰):
+| 워커 | 포함 라이브러리 | 역할(추정) |
+|---|---|---|
+| `agent_document_tool_executor` | pyhwpx, **xlwings**, pandas, calamine, PIL | 라이브 문서 편집(HWP+Excel COM) |
+| `document_interaction_worker` | pyhwpx, xlwings, calamine | 열린 문서 상태감지·읽기 |
+| `local_file_tool_executor` | docx, pptx, pypdfium2, calamine | 업로드 파일 읽기(any→text) |
+| `local_search_index_worker` | (단독) | 작업폴더 로컬 검색 인덱싱(RAG) |
+- **시사점**: v0.4.4는 Excel을 **xlwings로 라이브 제어**(openpyxl 파일주입 아님). 우리 form_fill의 XLSX는 openpyxl 좌표주입 — "열린 엑셀 실시간 제어"가 필요하면 xlwings 경로 검토. 나머지(2단계 읽기·blockId·code-as-action)는 07/10 문서 그대로. code-as-action은 소형 모델 부적합이라 우리 선언형 JSON 유지 판단 그대로 유효.
+
+---
+
+## 12. 작업 기록 — 2026-07-08 (한/글 느림 진단 + 코드 모듈화 ✅)
+
+### 한/글 열기 느림 — 원인 규명 (재설치 불필요)
+증상: 모든 한/글 파일이 열 때 오래 걸림. **실측: 콜드스타트 ~54초, 웜(이미 실행 중)은 0.1초.** 즉 시작 과정이 느린 것이지 문서/엔진 문제 아님.
+- **주원인 = AhnLab V3 Lite 실시간 검사**(`v3l4sp` 상주, Windows Defender는 이 때문에 passive). 콜드 실행 시 한/글의 수백 개 DLL을 매번 스캔.
+- **부원인 = USB Canon 프린터가 기본 프린터**(한/글 시작 시 용지정보 조회 → 프린터 꺼져있으면 대기). 프린터를 Print-to-PDF로 바꾸니 COM 콜드 83s→51s(약 30s 단축).
+- **한컴 빠른실행(preloader) 미실행** → 매번 콜드.
+- **해결(임팩트순)**: ① V3 예외에 `C:\Program Files (x86)\Hnc` 폴더 추가(관리자 V3 UI) ② 한컴 빠른실행 상주 켜기(첫 실행 후 즉시) ③ 기본 프린터 → "Microsoft Print to PDF". (테스트 시 기본 프린터는 원상 복원해 둠.)
+
+### 코드 모듈화 — 거대 단일 파일 2개 → 패키지 (무중단 facade, 행위보존)
+전체는 이미 모듈화(engine/·nodes/·hwpml/·routes/)돼 있었고, 남은 monolith 2개만 분할:
+- **`live_controller.py`(1182줄) → `engine/live/`** (9파일): base(데이터클래스·HWP싱글턴·유틸)/schemas/controller(감지·연결·디스패치) + 앱별 mixin `{hwp,excel,ppt,word}.py`. `LiveController(HwpMixin,ExcelMixin,PptMixin,WordMixin)`.
+- **`hwp_controller.py`(1768줄) → `engine/hwp/`** (7파일): models(Block/DocumentInfo)/blocks(BlockManager)/scanner(DocumentScanner)/editor(HwpEditor)/controller(HwpController)/schemas. AST로 클래스 줄범위 정확 슬라이스(기계적 분할, 전사오류 0).
+- **`chat_handler.py`(770줄) → `engine/chat/`** (4파일): intake(양식의도·파일/지시문 추출)/workflow(handle_chat·양식 assist)/live_chat(handle_live_chat·_read_with_cvd·parse_actions_response). AST 슬라이스.
+- **무중단**: `live_controller.py`·`hwp_controller.py`·`chat_handler.py`는 각각 27·23·25줄 facade로 남아 기존 심볼 재노출 → 기존 import 전부 무수정.
+- **검증**: 컴파일·메서드완전성·교차모듈배선·다운스트림import·싱글턴 + 벤치마크 1126/1126 + Excel COM 스모크(connect→set_cell/formula→get_cell=30) + **HWP 라이브 데모 3회 재실행**(각 리팩터 후 스캔→gemma→편집→제목교체·본문보존 확인) + FastAPI 앱 조립(66 라우트).
+- **⚠️ 교훈(chat 분할 시 실제 발생)**: `handle_live_chat`의 `Path(__file__).parent/"skills"`가 `engine/chat/live_chat.py`로 내려가며 `engine/chat/skills`(없음)를 가리켜 "스킬 없음: hwp" 리그레션 → `.parent.parent`로 수정. **import 검사로는 안 잡히고 라이브 데모(런타임)로만 잡힘.** 서브패키지로 함수 이동 시 `__file__` 상대경로 전수 점검 필수.
+- **남은 큰 파일은 분할 보류 권장**: `hwpml/parser.py`(826)·`form_assist.py`(634)는 **단일 관심사(파싱/양식처리)라 응집적** — 쪼개면 간접참조만 늘고 이득 적음. 컨트롤러·chat_handler(여러 관심사 혼재)와 성격 다름.
+
+---
+
+## 13. 작업 기록 — 2026-07-08 (새 문서 '지가 만들기' 생성 검증 ✅ + md_to_hwpx 표 드롭 버그 수정)
+
+목표의 나머지 절반(빈칸채우기 외 "새 양식 지가 만들기") 로컬 검증. 로컬 gemma가 가정통신문을 백지에서 작성 → hwpx.
+- **생성 품질: 양호**. 스캐폴드 시스템 프롬프트(개조식 섹션·표틀 제시)에 gemma가 내용만 채움(지능의 코드화). "여름방학 안전 가정통신문"(제목·인사말·안내표·당부3·마무리·날짜·학교장) **~5초, 511자, 구조 정확·내용 적절**. → 반정형 문서(가정통신문·공문)는 **LoRA 없이도 로컬 생성 가능**. LoRA는 품질 상향·장문(10p+ 계획서)용, 필수 아님.
+- **발견 1 (소형모델 약점) — 연도**: gemma가 날짜 연도를 학습기본값 **2024**로 씀(월·일은 정확). goe §10.8과 동일. **해결책: 생성 프롬프트에 현재 날짜 주입**(코드). 데모에선 후처리 `2024년→2026년`로 교정.
+- **발견 2 (실제 버그, 수정함) — pypandoc-hwpx 표 드롭**: 이 데스크톱엔 pypandoc-hwpx 설치돼 1순위로 쓰이는데, **마크다운 표를 통째로 드롭**(hp:tbl 0, 안내표·날짜 소실)했다. python-hwpx 경로(§10.7 검증)는 표 정상. **수정**: `nodes/md_to_hwpx/main.py`에 `_md_has_table`/`_hwpx_has_table`/`_table_fidelity_ok` 추가 → pypandoc/kordoc 변환 후 "표 있었는데 결과에 표 없음"이면 폴백. 검증: 로그 "pypandoc-hwpx 표 누락 감지 — python-hwpx로 폴백" → hp:tbl 1개 보존, 한/글 정상 열림. 결과 `data/fixtures/가정통신문_최종.hwpx`.
+- **의의**: 생성(자유양식) 경로가 이제 표 포함 문서를 온전히 만든다. 빈칸채우기(§7)에 이어 **생성 절반도 로컬로 실증** — 목표의 두 축 모두 로컬 동작 확인.
+- 데모 스크립트(scratchpad): `gen_doc.py`·`gen_fix.py`·`gen_verify.py`.
+- **다음 후보**: ① 생성 프롬프트에 현재날짜 주입(연도버그 근본해결) ② 장문(계획서) 개요→절단위 생성 파이프라인(§8 4단계) ③ 다양한 문서유형(공문·회의록) 생성 품질 실측.
+
+### 표 디자인 개선 (2026-07-08 — "표가 너무 구림" 피드백 반영 ✅)
+생성 표가 밋밋(모든 셀 균등폭·헤더 음영 없음)했던 문제 수정. `nodes/md_to_hwpx/main.py` python-hwpx 경로:
+- **헤더 음영**: `TABLE_HEADER_SHADE="#D9E1F2"`(연한 파랑-회색) → `Table(header_shading=...)`. borderFill 추가 확인.
+- **열 너비 차등**: `_table_column_weights()`가 열별 최대 텍스트 길이(한글=2, 최소3) 비례 가중치 계산 → `column_widths=`. 실측: 라벨열 1728 vs 내용열 12672(mm 단위 내부값)로 차등. 라벨 좁게·내용 넓게.
+- 검증: hard-gate 통과, 한/글 정상 열림. ※ 헤더 **볼드·가운데정렬**은 python-hwpx Table 빌더가 미노출(저수준 charPr) — 추가 폴리시 원하면 후속.
+- (라이브 COM `create_table`은 이미 `style_table_row`/`set_table_widths` 등 서식 op 보유 — 이번 수정은 파일생성(md_to_hwpx) 경로 전용.)
+
+### ⚠️ 테스트 모델 명확화
+지금까지 로컬 테스트는 전부 **Gemma 3n E4B**(`gemma-4-E4B-it-Q3_K_S.gguf`, 유효 4B급, MatFormer)로 수행. **E2B(유효 2B, 8GB 구형노트북용)로는 미검증.** 배포 타깃이 8GB 노트북이면 E2B에서 벤치·생성 품질 재측정 필요(빈칸채우기는 E2B도 될 가능성 높으나 장문생성은 열화 예상).
+
+---
+
+## 14. ⏭️ 다음 세션 작업 지시 — 노드/엣지/워크플로우 전면 점검·개선
+
+> 사용자 요청(2026-07-08): "sbc_final 기능 전체 검토, 노드 엣지 연결·워크플로우 설계 쉽게 되는지 치밀하게 점검·개선." **이 작업은 새 세션에서 시작.** 아래는 진입용 스코프.
+
+**대상 시스템** (노드 에디터 = 이 제품의 '코딩 없이 자동화' 핵심 UX):
+- 프론트: `src/` React 노드 에디터 (드래그&드롭 노드 연결, ComfyUI/Orange3 류).
+- 백엔드: `engine/loader.py`(nodes/ 스캔→node.yaml 파싱→execute 동적로드), `engine/runner.py`(DAG 위상정렬→순차 execute), `engine/types.py`(타입: file/text/table/image/list/any), `nodes/`(31개).
+
+**점검 항목 (권장 순서)**:
+1. **타입/엣지 정합성**: node.yaml의 입출력 타입 선언 vs 실제 execute 반환. 엣지 연결 시 타입 호환 검증이 있는지(런타임/UI). 비호환 연결 차단·경고 UX.
+2. **노드 계약 감사**: 31개 노드 각 node.yaml(입출력·파라미터) ↔ main.py execute 시그니처 일치, 에러 처리(누락 입력·변환 실패), 로컬 provider 지원 여부(llm_* 노드).
+3. **워크플로우 E2E**: 대표 워크플로우(form_extract→llm_local→form_fill / 파일→md→생성) 실제 빌드·실행. runner의 위상정렬·에러 전파·중간 결과 확인. (엔진 :8406, 프론트 :1420.)
+4. **설계 UX 마찰**: 노드 검색·추가·연결·실행·결과확인 흐름의 마찰점. 프리셋·자동배치·저장/복원.
+5. **개선**: 위에서 나온 결함 수정 + '쉽게 설계' 걸림돌 제거. (facade 패턴·검증 자동화는 이번 세션 참고.)
+
+**참고**: 이번 세션에 `engine/live/`·`engine/hwp/`·`engine/chat/` 모듈화 + md_to_hwpx 표수정/생성검증 완료(§12·13). 벤치마크(`scripts/benchmark_form_fill.py --llm local`)가 회귀 안전망. 모델·경로·실행법은 §11.

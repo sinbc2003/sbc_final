@@ -204,6 +204,10 @@ class LLMManager:
             response = gm.generate_content(parts, generation_config={"max_output_tokens": max_tokens, "temperature": temperature})
             return response.text
 
+        if provider == "local":
+            # messages 역할 배열 직통 → 내장 chat 템플릿이 system/user 정확 적용
+            return self._generate_local_chat(messages, max_tokens=max_tokens, temperature=temperature)
+
         # fallback
         prompt = "\n".join(f"[{m['role']}] {m['content']}" for m in messages)
         return self.generate(prompt, max_tokens=max_tokens, temperature=temperature, provider=provider)
@@ -296,20 +300,11 @@ class LLMManager:
             "API 키를 설정하거나 로컬 모델(models/base/*.gguf)을 설치하세요."
         )
 
-    def _generate_local(
-        self, prompt: str, max_tokens: int, temperature: float, lora: str | None,
-        json_schema: dict | None = None,
-    ) -> str:
-        """llama-server HTTP API를 통한 로컬 생성.
-
-        llama-server가 127.0.0.1:8400에서 실행 중이어야 함.
-        미실행 시 자동으로 시작 시도.
-        """
+    def _ensure_local_server(self) -> str:
+        """llama-server 상태 확인, 미실행 시 자동 시작. server_url 반환."""
         import requests as _req
 
         server_url = "http://127.0.0.1:8400"
-
-        # 서버 상태 확인, 미실행 시 자동 시작
         try:
             _req.get(f"{server_url}/health", timeout=2)
         except Exception:
@@ -324,13 +319,23 @@ class LLMManager:
                     pass
             else:
                 raise RuntimeError("llama-server 시작 실패 (30초 타임아웃)")
+        return server_url
 
-        # OpenAI 호환 /v1/chat/completions 사용 → 모델의 내장 chat 템플릿 자동 적용
-        # (gemma-4 등 최신 모델은 수동 <start_of_turn> 템플릿과 다름. --jinja로 정확 적용)
-        # 사고(reasoning) 모델은 서버가 --reasoning off로 기동되어 기본 비활성.
+    def _local_chat_completion(
+        self, messages: list[dict], max_tokens: int, temperature: float,
+        json_schema: dict | None = None,
+    ) -> str:
+        """llama-server /v1/chat/completions 호출.
+
+        messages(역할 배열)를 직통 전달 → 모델 내장 chat 템플릿(--jinja)이
+        system/user 역할을 정확히 적용. gemma-4 등 사고모델은 --reasoning off로 기동.
+        """
+        import requests as _req
+
+        server_url = self._ensure_local_server()
         payload: dict = {
             "model": "local",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
@@ -341,7 +346,6 @@ class LLMManager:
                 "json_schema": {"name": "response", "schema": json_schema},
             }
         resp = _req.post(f"{server_url}/v1/chat/completions", json=payload, timeout=300)
-
         data = resp.json()
 
         # 오류 감지 (컨텍스트 초과 등)
@@ -358,6 +362,26 @@ class LLMManager:
             raise RuntimeError(f"llama-server 오류: {resp.status_code} {resp.text[:300]}")
 
         return (data["choices"][0]["message"].get("content") or "").strip()
+
+    def _generate_local(
+        self, prompt: str, max_tokens: int, temperature: float, lora: str | None,
+        json_schema: dict | None = None,
+    ) -> str:
+        """단일 프롬프트 로컬 생성. 미실행 시 llama-server 자동 시작."""
+        return self._local_chat_completion(
+            [{"role": "user", "content": prompt}], max_tokens, temperature, json_schema,
+        )
+
+    def _generate_local_chat(
+        self, messages: list[dict], max_tokens: int, temperature: float,
+        json_schema: dict | None = None,
+    ) -> str:
+        """멀티턴 로컬 생성 — system/user 역할을 보존해 chat 템플릿에 정확히 전달.
+
+        (기존 fallback은 messages를 '[role] content' 문자열로 뭉개 단일 user로 보내
+        스킬 시스템 프롬프트의 역할 구분이 사라졌음 — 소형 모델 품질 저하 원인.)
+        """
+        return self._local_chat_completion(messages, max_tokens, temperature, json_schema)
 
     def _start_llama_server(self):
         """llama-server를 백그라운드로 시작."""
