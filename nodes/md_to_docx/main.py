@@ -9,6 +9,14 @@ import os
 import re
 
 
+def _strip_inline(text: str) -> str:
+    """볼드/이탤릭 마커 제거 (간이). 헤딩·리스트·표·인용·단락에 일관 적용."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    return text
+
+
 def _add_table_to_doc(doc, table_lines: list[str]):
     """마크다운 표를 DOCX 표로 추가."""
     rows = []
@@ -28,7 +36,7 @@ def _add_table_to_doc(doc, table_lines: list[str]):
     for i, row_data in enumerate(rows):
         for j in range(num_cols):
             text = row_data[j] if j < len(row_data) else ""
-            table.rows[i].cells[j].text = text
+            table.rows[i].cells[j].text = _strip_inline(text)
 
 
 def execute(inputs: dict, params: dict, context: dict) -> dict:
@@ -54,7 +62,7 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
         heading_match = re.match(r"^(#{1,6})\s+(.+)$", line)
         if heading_match:
             level = len(heading_match.group(1))
-            text = heading_match.group(2).strip()
+            text = _strip_inline(heading_match.group(2).strip())
             doc.add_heading(text, level=min(level, 9))
             i += 1
             continue
@@ -87,7 +95,7 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
         # 리스트 항목
         list_match = re.match(r"^(\s*)[-*+]\s+(.+)$", line)
         if list_match:
-            text = list_match.group(2).strip()
+            text = _strip_inline(list_match.group(2).strip())
             p = doc.add_paragraph(text, style="List Bullet")
             i += 1
             continue
@@ -95,14 +103,14 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
         # 번호 리스트
         num_list_match = re.match(r"^(\s*)\d+\.\s+(.+)$", line)
         if num_list_match:
-            text = num_list_match.group(2).strip()
+            text = _strip_inline(num_list_match.group(2).strip())
             p = doc.add_paragraph(text, style="List Number")
             i += 1
             continue
 
         # 인용
         if line.strip().startswith("> "):
-            text = line.strip()[2:]
+            text = _strip_inline(line.strip()[2:])
             p = doc.add_paragraph(text)
             p.style = doc.styles["Quote"] if "Quote" in [s.name for s in doc.styles] else None
             i += 1
@@ -125,10 +133,7 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
             continue
 
         # 일반 단락
-        text = line.strip()
-        # 볼드/이탤릭 제거 (간이 처리)
-        clean_text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-        clean_text = re.sub(r"\*(.+?)\*", r"\1", clean_text)
+        clean_text = _strip_inline(line.strip())
         doc.add_paragraph(clean_text)
         i += 1
 

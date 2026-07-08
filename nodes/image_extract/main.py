@@ -38,10 +38,20 @@ def _extract_from_pdf(pdf_path: str, output_dir: str, fmt: str) -> list[str]:
                 from PIL import Image
                 import io
 
-                img_obj = Image.open(io.BytesIO(image_bytes))
-                if fmt == "jpg":
-                    img_obj = img_obj.convert("RGB")
-                img_obj.save(output_path)
+                try:
+                    img_obj = Image.open(io.BytesIO(image_bytes))
+                    # PNG는 CMYK를 못 쓰고, JPG는 알파/CMYK가 문제 → RGB로 변환
+                    if fmt in ("jpg", "jpeg") or img_obj.mode in ("CMYK", "P", "RGBA"):
+                        img_obj = img_obj.convert("RGB")
+                    img_obj.save(output_path)
+                except Exception:
+                    # 변환 불가한 이미지(CMYK 외 JBIG2·JPX 등)는 원본 형식으로 저장
+                    raw_path = os.path.join(
+                        output_dir, f"page{page_idx + 1}_img{img_idx + 1}.{image_ext}"
+                    )
+                    with open(raw_path, "wb") as f:
+                        f.write(image_bytes)
+                    output_path = raw_path
 
             image_paths.append(output_path)
 

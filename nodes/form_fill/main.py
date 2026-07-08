@@ -30,13 +30,20 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
         raise ValueError("채울내용은 {빈칸ID: 값} 형태의 JSON 객체여야 합니다.")
 
     ext = Path(form_path).suffix.lower()
+
+    # 구형 .xls(OLE 바이너리)는 openpyxl 미지원 → 혼란스러운 BadZipFile 대신 명확히 안내
+    if ext == ".xls":
+        raise ValueError(
+            "구형 .xls 형식은 지원하지 않습니다. 엑셀에서 .xlsx로 저장한 뒤 사용하세요."
+        )
+
     output_name = params.get("output_name", "완성")
     output_ext = ext if ext in (".xlsx", ".hwpx") else ".hwpx"
     output_path = os.path.join(context["temp_dir"], f"{output_name}{output_ext}")
 
     context["progress"](0.1)
 
-    if ext in (".xlsx", ".xls"):
+    if ext == ".xlsx":
         _fill_xlsx(form_path, fill_data, output_path, context)
     elif ext == ".hwpx":
         _fill_hwpx(form_path, fill_data, output_path, context)

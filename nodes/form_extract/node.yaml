@@ -13,7 +13,7 @@ description: >
 inputs:
   - name: 파일
     type: file
-    accept: [.hwpx, .hwp, .xlsx, .xls]
+    accept: [.hwpx, .hwp, .xlsx]
     description: 빈칸을 추출할 양식 파일
 
 outputs:

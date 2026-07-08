@@ -13,7 +13,7 @@ description: >
 inputs:
   - name: 양식파일
     type: file
-    accept: [.hwpx, .hwp, .xlsx, .xls]
+    accept: [.hwpx, .hwp, .xlsx]
     description: 값을 주입할 원본 양식 파일
   - name: 채울내용
     type: text

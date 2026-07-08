@@ -20,9 +20,15 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     include_filled = params.get("include_filled", False)
     ext = Path(file_path).suffix.lower()
 
+    # 구형 .xls(OLE 바이너리)는 openpyxl 미지원 → 혼란스러운 BadZipFile 대신 명확히 안내
+    if ext == ".xls":
+        raise ValueError(
+            "구형 .xls 형식은 지원하지 않습니다. 한/글이나 엑셀에서 .xlsx로 저장한 뒤 사용하세요."
+        )
+
     context["progress"](0.1)
 
-    if ext in (".xlsx", ".xls"):
+    if ext == ".xlsx":
         try:
             fields, full_text = _extract_xlsx(file_path, include_filled, context)
         except (IndexError, Exception) as e:
