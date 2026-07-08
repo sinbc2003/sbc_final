@@ -74,6 +74,12 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     lora = params.get("lora") or None
     model = params.get("model") if params.get("model") else None
 
+    # LoRA 어댑터는 아직 엔진에 배선되지 않음 → 지정 시 오해 방지용 경고
+    if lora:
+        context["log"](
+            f"[WARN] LoRA 어댑터('{lora}')는 현재 활성화되지 않아 기본(베이스) 모델로 생성됩니다."
+        )
+
     context["progress"](0.1)
 
     # 모델 정보

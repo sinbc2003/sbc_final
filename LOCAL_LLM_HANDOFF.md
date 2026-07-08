@@ -558,14 +558,16 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
     - **md_to_docx**(#52): 볼드/이탤릭 마커 제거를 `_strip_inline` 헬퍼로 통일 → **헤딩·리스트·표셀·인용에도 적용**(이전엔 일반 단락만, Word 문서에 `**` 노출). (검증: 별표 잔존 0.)
     - **form_extract·form_fill**(#8·11): 구형 `.xls` 입력 시 혼란스러운 `BadZipFile` 대신 **"..xlsx로 저장 후 사용" 명확한 ValueError**, node.yaml accept에서 `.xls` 제거.
 
-### ⏳ 남은 결함 (낮은 우선순위, 후속)
-- lora no-op(#22·51 — llm_generate lora 파라미터가 엔진 전구간 미배선 — 배선 또는 param 제거 결정 필요), 프론트 드리프트(defaultNodes vs yaml #51), md_to_docx→ 아닌 **docx_to_md** 표 파이프/순서(#32), image_extract ZIP 폴백 중복(#44), 기타 low.
+12. **lora 오해 방지 경고**(#22) — llm_generate: `lora` 지정 시 "어댑터 미활성 → 베이스 모델 사용" `[WARN]`. (LoRA 실배선은 §8 3단계 증류 과제 — 어댑터 파일 생성 후.)
+
+### ⏳ 남은 결함 (낮은 우선순위, 후속 — 대부분 폴백·프론트 한정)
+- 프론트 드리프트(defaultNodes vs yaml #51 — 엔진 오프라인 시만 발현), **docx_to_md** 표 파이프/순서·인코딩(#32·31·39·42 — kordoc 폴백 경로 한정), image_extract ZIP 폴백 중복(#44), form_fill keep_vba 데드코드(#37), 기타 low. 상세 `confirmed_findings.md`.
 - **미검증 결함**: 세션 한도로 verify 못 돈 항목(runner temp_dir 미정리, output_dir 미설정시 Desktop 복사 등)은 다음 세션에서 재검증 필요.
 
 **회귀 안전망 ✅**: `scripts/benchmark_form_fill.py --llm local` 재실행 → **레벨1 왕복 1126/1126, 마커 1126/1126, 레벨2 로컬 gemma 495/495 (100%)** 재현(2026-07-08, 6개 커밋 후). 엔진 변경(runner/types/loader/table_utils)이 핵심 채우기 경로 무손상 확인. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 별도 확인.) 벤치 후 llama-server 종료로 VRAM 반납.
 
 ### 커밋 이력 (origin/main)
-`ceef632` 수정1(llm_extract records+스키마강제, hwpx_fill XML이스케이프) → `30a7624` 수정2(form_fill etree+RegisterModule) → `0913099` 수정3(러너 필수입력검증 15건) → `593ef92` 수정4(table 정규화) → `d5cf4f5` 수정5(kordoc npx 6노드) → `8e4f8fa` §15마무리 → **2라운드**: `d865df9` 수정7(llm_classify enum강제·llm_translate·llm_generate 견고화) → `680b84a` 수정8(무음실패 제거 file_input·form_extract) → 수정9(품질·크래시: image_extract CMYK·md_to_docx 마커·.xls 명확에러).
+`ceef632` 수정1(llm_extract records+스키마강제, hwpx_fill XML이스케이프) → `30a7624` 수정2(form_fill etree+RegisterModule) → `0913099` 수정3(러너 필수입력검증 15건) → `593ef92` 수정4(table 정규화) → `d5cf4f5` 수정5(kordoc npx 6노드) → `8e4f8fa` §15마무리 → **2라운드**: `d865df9` 수정7(llm_classify enum강제·llm_translate·llm_generate 견고화) → `680b84a` 수정8(무음실패 제거 file_input·form_extract) → `9b1ac72` 수정9(품질·크래시: image_extract CMYK·md_to_docx 마커·.xls 명확에러) → 수정10(lora 오해방지 경고). **총 감사 2라운드 = 12수정묶음, 확정 53결함 중 high 6·goal-critical 전부 + medium 다수 처리.**
 
 ### 다음 세션 진입점
 - **남은 저우선 결함**(§위 "남은 결함" 목록): 무음 실패(#7·10·49), API 오류처리(#23·26), lora no-op(#22·51), 프론트 defaultNodes 드리프트(#51 등), .xls 미지원 선언(#8·11), md_to_docx 품질(#32·52). 확정 결함 원문은 세션 scratchpad `confirmed_findings.md`(53건 전체).
