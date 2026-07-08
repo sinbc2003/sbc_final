@@ -22,8 +22,8 @@ inputs:
 outputs:
   - name: 파일
     type: file
-    accept: [.hwpx]
-    description: 채워진 HWPX 파일 (여러 행이면 ZIP)
+    accept: [.hwpx, .zip]
+    description: 채워진 HWPX 파일 (여러 행이면 여러 파일을 .zip으로 묶어 반환)
 
 params: []
 

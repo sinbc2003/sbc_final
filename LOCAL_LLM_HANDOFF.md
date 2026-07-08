@@ -497,3 +497,37 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 5. **개선**: 위에서 나온 결함 수정 + '쉽게 설계' 걸림돌 제거. (facade 패턴·검증 자동화는 이번 세션 참고.)
 
 **참고**: 이번 세션에 `engine/live/`·`engine/hwp/`·`engine/chat/` 모듈화 + md_to_hwpx 표수정/생성검증 완료(§12·13). 벤치마크(`scripts/benchmark_form_fill.py --llm local`)가 회귀 안전망. 모델·경로·실행법은 §11.
+
+---
+
+## 15. 작업 기록 — 2026-07-08 (§14 노드/워크플로우 전면 감사 + 결함 수정 진행 중)
+
+> 40-에이전트 워크플로우 감사(노드 31 계약 + 엔진 4방면 + 프론트 4방면 + E2E)로 **177개 원시 발견 → 적대적 검증 → 53개 확정 결함**. (검증 도중 Anthropic 세션 한도로 일부 verify 미완 → "기각"에 미검증 포함 가능, 확정 53건은 신뢰.) 확정 결함 원문: 세션 scratchpad `confirmed_findings.md`.
+> **수정 우선순위 = 소형 로컬 모델 목표 렌즈**: 추출→채우기 파이프라인, 오류 가시성, 스키마 강제부터.
+
+### 확정 결함 분포 (high 6 / medium 23 / low 24)
+- **A. table 페이로드 규약 불일치**(high, #0·1·5): 노드마다 "table"이 records/시트래퍼/헤더행리스트로 제각각 → 연결 시 조용한 데이터 오염 또는 크래시. **llm_extract→hwpx_fill(추출→양식 대량생성)이 대표 워크플로우인데 크래시**.
+- **B. 필수입력 미검증 → raw KeyError**(medium/low ~15건): 노드가 `inputs["파일"]` 직접 인덱싱, 러너에 사전검증 없음 → "실행 실패: '파일'"만 노출. **러너 한 곳 수정으로 일괄 해소 가능**.
+- **C. 채우기 크래시·손상**(high, #2·3·4): form_fill etree NameError(레거시 경로 항상 죽음), hwpx_fill XML 이스케이프 누락(& < > → 파일 손상), RegisterModule 인자 오류(교사 PC 배포 시 보안대화상자 블로킹).
+- **D. llm_extract JSON 파싱 취약**(#20·48): 탐욕 정규식+무음 빈테이블, json_schema 강제 미사용(엔진은 지원). **소형 모델 신뢰성 직결**.
+- **E. kordoc npx.cmd Windows 죽은 코드**(#15·17·31·39·42): `subprocess.run(["npx",...])`가 .cmd 실행 못해 Windows에서 1순위 변환기 항상 폴백 + cp949 인코딩.
+- **F. 무음 실패**(#7·10·49): 변환 실패를 빈 출력으로 "성공" 처리.
+- G. 계약 드리프트/데드코드(low 다수): .xls 미지원 선언, lora no-op(#22·51), pages 무시(#28) 등.
+
+### ✅ 수정 완료
+1. **llm_extract 소형모델 견고화** (#5·20·48) — `nodes/llm_extract/{main.py,node.yaml}`:
+   - 출력을 **records(list[dict], 키=필드명)**로 표준화(생태계 규약 일치 → hwpx_fill `row.get()` 크래시 해소). 기존은 헤더행+2D리스트라 모든 소비 노드에서 크래시/오출력.
+   - **json_schema 강제 디코딩 배선**: `_build_schema(fields)`(array of objects, required=필드) → `llm.generate(json_schema=...)`. 로컬 llama-server가 GBNF로 강제(벤치와 동일 메커니즘). 소형 모델이 형식을 못 틀림.
+   - **견고한 파싱**: 코드펜스 제거 → 전체 JSON → 비탐욕 객체배열 → 일반배열 순. dict 래퍼(`{"결과":[...]}`)·단일객체·위치리스트 흡수. **파싱 실패는 `None`으로 구분 → 무음 빈테이블 대신 `[WARN]` 로그+원문 스니펫**. 오프라인 6케이스 검증 통과.
+2. **hwpx_fill 손상·소실 수정** (#3·12·13) — `nodes/hwpx_fill/{main.py,node.yaml}`:
+   - **XML 이스케이프**(`xml.sax.saxutils.escape`): 치환값의 `& < >` 이스케이프 → `진로&직업`·`<검토>` 넣어도 well-formed(합성 템플릿 검증). 미치환 `{{키}}`는 원문 유지(이스케이프 안 함).
+   - **다중행 파일명에 행 인덱스 접두어**(`{idx+1:03d}_이름.hwpx`): 동명이인 덮어쓰기·ZIP 중복 방지.
+   - 출력 accept `[.hwpx]`→`[.hwpx, .zip]`(다중행은 실제 .zip 반환 → 계약 일치).
+
+### ⏳ 수정 예정 (순서)
+- C잔여: form_fill `_fill_hwpx_section` etree 모듈 상단 import(#2), RegisterModule `"FilePathCheckDLL"` 수정(form_fill:397 + hwp_to_hwpx:41, #4).
+- B: `engine/runner.py` 실행 전 필수입력 검증(PortSpec `optional` 필드) → 한국어 메시지(#6·9·14·16·19·21·24·25·27·30·36·38·41·43·46 일괄).
+- A잔여: table 정규화 helper(xlsx_to_md 시트래퍼 언랩) → column_mapping/data_merge/save_xlsx(#0·1).
+- E: 4개 변환노드 npx 전체경로+encoding=utf-8(#15·17·31·39·42).
+
+**회귀 안전망**: `scripts/benchmark_form_fill.py --llm local` 495/495. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 확인.)

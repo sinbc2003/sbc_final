@@ -12,6 +12,7 @@ import re
 import shutil
 import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
 
 
 def _fill_hwpx(template_path: str, data: dict, output_path: str) -> str:
@@ -26,10 +27,14 @@ def _fill_hwpx(template_path: str, data: dict, output_path: str) -> str:
                     try:
                         text = content.decode("utf-8")
 
-                        # {{변수명}} 패턴 치환
+                        # {{변수명}} 패턴 치환.
+                        # 치환값은 XML 본문에 삽입되므로 &, <, > 이스케이프 필수.
+                        # (미치환 키는 원문 {{키}}를 그대로 두어 이스케이프하지 않음)
                         def replacer(match):
                             key = match.group(1).strip()
-                            return str(data.get(key, match.group(0)))
+                            if key in data:
+                                return _xml_escape(str(data[key]))
+                            return match.group(0)
 
                         text = re.sub(r"\{\{(.+?)\}\}", replacer, text)
                         content = text.encode("utf-8")
@@ -88,7 +93,8 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     for idx, row in enumerate(table_data):
         row_name = row.get("이름", row.get("name", f"row_{idx + 1}"))
         safe_name = re.sub(r'[\\/:*?"<>|]', "_", str(row_name))
-        out_path = os.path.join(output_dir, f"{safe_name}.hwpx")
+        # 행 인덱스를 항상 접두어로 붙여 동명이인도 파일이 덮어써지지 않게 함
+        out_path = os.path.join(output_dir, f"{idx + 1:03d}_{safe_name}.hwpx")
         _fill_hwpx(template_path, row, out_path)
         generated.append(out_path)
 

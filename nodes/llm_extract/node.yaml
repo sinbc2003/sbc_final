@@ -7,8 +7,9 @@ author: 신병철
 
 description: >
   LLM을 사용하여 텍스트에서 지정된 필드를 추출한다.
-  추출 결과를 테이블(2차원 배열) 형태로 반환하며,
+  추출 결과를 표(records: 필드명을 키로 갖는 객체 목록) 형태로 반환하며,
   구조화된 데이터 추출에 활용할 수 있다.
+  로컬 모델도 안정적으로 쓰도록 JSON 스키마 강제 디코딩을 사용한다.
 
 inputs:
   - name: 입력텍스트
@@ -18,7 +19,7 @@ inputs:
 outputs:
   - name: 추출결과
     type: table
-    description: 추출된 정보 테이블 (헤더 + 데이터 행)
+    description: "추출된 정보 표 (records: [{필드명: 값}, ...])"
 
 params:
   - id: fields
