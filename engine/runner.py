@@ -272,6 +272,27 @@ class PipelineRunner:
                     else:
                         params[port_name] = value
 
+            # 필수 입력 사전 검증: 미연결/상류 실패로 값이 없으면 명확한 한국어
+            # 메시지로 건너뛴다. (raw KeyError: '파일' 노출 방지)
+            missing = [
+                port.name for port in node_def.inputs
+                if not port.optional and (
+                    port.name not in inputs or inputs.get(port.name) is None
+                )
+            ]
+            if missing:
+                port_list = ", ".join(f"'{m}'" for m in missing)
+                err_msg = (
+                    f"노드 '{node_id}' ({node_def.name}): "
+                    f"필수 입력 {port_list}이(가) 연결되지 않았거나 "
+                    f"이전 노드에서 값이 오지 않았습니다"
+                )
+                errors.append(err_msg)
+                self._log(node_id, f"[ERROR] {err_msg}")
+                node_outputs[node_id] = {}
+                node_timings[node_id] = 0.0
+                continue
+
             # context 구성
             temp_dir = tempfile.mkdtemp(prefix=f"tf_{node_id}_")
             context = {

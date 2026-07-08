@@ -32,6 +32,7 @@ class PortSpec:
     type: str
     accept: list[str] = field(default_factory=list)  # file 타입일 때 허용 확장자
     description: str = ""
+    optional: bool = False  # 입력 포트: True면 미연결 허용 (기본은 필수)
 
     def __post_init__(self):
         if self.type not in VALID_TYPES:

@@ -12,11 +12,13 @@ description: >
 inputs:
   - name: 입력1
     type: text
-    description: 첫 번째 입력 텍스트
+    optional: true
+    description: 첫 번째 입력 텍스트 (선택 — 미연결 시 템플릿에서 무시)
 
   - name: 입력2
     type: text
-    description: 두 번째 입력 텍스트
+    optional: true
+    description: 두 번째 입력 텍스트 (선택 — 미연결 시 템플릿에서 무시)
 
 outputs:
   - name: 텍스트

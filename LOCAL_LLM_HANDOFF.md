@@ -528,8 +528,13 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
    - **etree 스코프 수정**(#2): `_fill_hwpx_section`(모듈 레벨 함수)이 `_fill_hwpx`의 지역 `etree` import를 못 봐 누름틀/라벨 키 경로에서 항상 `NameError`. 함수 내 `from lxml import etree` 추가. 네임스페이스 section XML로 검증(라벨 "이름"→빈 `<hp:t>`에 값 주입 성공).
    - **RegisterModule 인자 수정**(#4): `"FilePathCheckerModuleExample"`(예제 DLL명)→`"FilePathCheckDLL"`(정식 ModuleType). 반환 False면 `[WARN]` 로그. **교사 PC 배포 시 한/글 보안 대화상자 블로킹 해소**(pyhwpx 없는 환경). form_fill:397 + hwp_to_hwpx:41 둘 다.
 
+4. **러너 필수입력 검증** (#6·9·14·16·19·21·24·25·27·30·36·38·41·43·46 — 15건 일괄) — `engine/{types.py,loader.py,runner.py}`:
+   - `PortSpec`에 `optional: bool=False` 필드 추가(loader가 yaml `optional:` 파싱). **선언된 입력은 기본 필수**.
+   - 러너가 execute **전에** 필수 입력 존재를 검증 → 없거나 `None`이면 `노드 'X' (이름): 필수 입력 '포트'이(가) 연결되지 않았거나 이전 노드에서 값이 오지 않았습니다`로 건너뜀. **raw `KeyError: '파일'` → 한국어 메시지**. 15개 노드의 동일 패턴을 러너 한 곳에서 해소.
+   - `text_template` 입력1/입력2는 `optional: true`(유연 조합 노드) — 검증으로 예외 처리. 검증: 미연결→명확 메시지, text_template 단일입력 실행, 정상 2노드 파이프라인 무영향 모두 확인.
+   - (미채택: 출력값 `validate_value` 배선은 노이즈 경고 위험으로 보류.)
+
 ### ⏳ 수정 예정 (순서)
-- B: `engine/runner.py` 실행 전 필수입력 검증(PortSpec `optional` 필드) → 한국어 메시지(#6·9·14·16·19·21·24·25·27·30·36·38·41·43·46 일괄).
 - A잔여: table 정규화 helper(xlsx_to_md 시트래퍼 언랩) → column_mapping/data_merge/save_xlsx(#0·1).
 - E: 4개 변환노드 npx 전체경로+encoding=utf-8(#15·17·31·39·42).
 

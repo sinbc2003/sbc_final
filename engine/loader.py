@@ -59,6 +59,7 @@ def _parse_ports(port_list: list[dict]) -> list[PortSpec]:
             type=p["type"],
             accept=p.get("accept", []),
             description=p.get("description", ""),
+            optional=p.get("optional", False),
         ))
     return ports
 
