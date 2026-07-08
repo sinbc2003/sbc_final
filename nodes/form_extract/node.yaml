@@ -37,6 +37,7 @@ resource:
 dependencies:
   - openpyxl
   - lxml
+  - olefile  # .hwp 텍스트 추출
 
 use_when:
   - 공문 첨부 양식의 빈칸을 파악할 때

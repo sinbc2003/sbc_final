@@ -25,14 +25,17 @@ _CONVERTERS = {
 }
 
 
-def _auto_convert(file_path: str, context: dict) -> str:
-    """파일을 마크다운 텍스트로 자동 변환."""
+def _auto_convert(file_path: str, context: dict) -> str | None:
+    """파일을 마크다운 텍스트로 자동 변환.
+
+    성공 시 텍스트, 실패/미지원/빈 결과 시 None을 반환한다(무음 성공 방지).
+    """
     ext = Path(file_path).suffix.lower()
     converter = _CONVERTERS.get(ext)
 
     if not converter:
-        context["log"](f"자동 변환 미지원 확장자: {ext}")
-        return ""
+        context["log"](f"[WARN] 자동 변환 미지원 확장자: {ext}")
+        return None
 
     if converter == "_raw_text":
         # 텍스트 파일은 그대로 읽기
@@ -45,25 +48,21 @@ def _auto_convert(file_path: str, context: dict) -> str:
     try:
         import importlib
         mod = importlib.import_module(f"nodes.{converter}.main")
-        # 입력 포트명 찾기
-        input_name = "파일"
-        if converter == "xlsx_to_md":
-            input_name = "파일"
-
         result = mod.execute(
-            {input_name: file_path},
+            {"파일": file_path},
             {"pages": "전체"},
             context,
         )
-        # 텍스트 출력 포트 찾기
-        return result.get("텍스트", "") or ""
+        text = result.get("텍스트", "") or ""
+        return text if text.strip() else None
     except Exception as e:
-        context["log"](f"자동 변환 실패: {e}")
-        return ""
+        context["log"](f"[WARN] 자동 변환 실패({ext}): {e}")
+        return None
 
 
 def execute(inputs: dict, params: dict, context: dict) -> dict:
-    file_path = params.get("path", "").strip()
+    # path가 None(워크플로우 JSON에 null)이어도 AttributeError 없이 처리
+    file_path = str(params.get("path") or "").strip()
 
     if not file_path:
         raise ValueError("파일 경로가 비어있습니다")
@@ -90,7 +89,12 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
             result["텍스트"] = text
             context["log"](f"변환 완료 ({len(text):,}자)")
         else:
-            result["텍스트"] = ""
+            # 변환 실패/미지원/빈 결과: 텍스트 포트를 비워둔다(무음 성공 방지).
+            # 하류 텍스트 노드는 러너가 명확한 메시지로 건너뛴다. 파일 출력은 정상.
+            context["log"](
+                "[WARN] 자동 변환 결과가 비어 있어 텍스트 출력을 제공하지 않습니다 "
+                "(파일 출력은 정상). 형식·변환기 설치를 확인하세요."
+            )
     else:
         result["텍스트"] = ""
 

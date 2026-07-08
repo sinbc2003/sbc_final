@@ -402,7 +402,15 @@ def _extract_hwp(path: str, include_filled: bool, context) -> tuple[list, str]:
             extract_text(path, buf)
             full_text = buf.getvalue()
         except Exception:
-            full_text = f"[HWP 텍스트 추출 실패: {os.path.basename(path)}]"
+            pass
+
+    # 추출 완전 실패 시 무음 성공(빈 양식) 대신 명확히 실패시킨다
+    if not full_text or not full_text.strip():
+        raise RuntimeError(
+            f"HWP 텍스트 추출 실패: {os.path.basename(path)} — "
+            f"olefile/hwp5 미설치이거나 지원하지 않는 형식입니다. "
+            f".hwpx로 저장 후 사용하거나 'pip install olefile'을 설치하세요."
+        )
 
     # 텍스트 기반 빈칸 추출 — 빈 괄호, 밑줄, 빈 칸 패턴
     import re
