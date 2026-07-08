@@ -534,8 +534,12 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
    - `text_template` 입력1/입력2는 `optional: true`(유연 조합 노드) — 검증으로 예외 처리. 검증: 미연결→명확 메시지, text_template 단일입력 실행, 정상 2노드 파이프라인 무영향 모두 확인.
    - (미채택: 출력값 `validate_value` 배선은 노이즈 경고 위험으로 보류.)
 
+5. **table 페이로드 정규화** (#0·1·29) — `engine/table_utils.py`(신규) + column_mapping/save_xlsx/data_merge:
+   - `to_records(value)`: 어떤 table 모양(records / xlsx_to_md 시트래퍼 `[{sheet,data}]` / 헤더행 2D리스트 / 단일dict / JSON문자열)이든 **records(list[dict])로 정규화**. 순수 파이썬(pandas 무관).
+   - column_mapping·save_xlsx가 `to_records`로 입력 정규화 → **xlsx_to_md→column_mapping 시 sheet/rows/columns/data 4컬럼 오염·매핑 전탈락 해소**. (검증: 시트래퍼+학번→학생번호 매핑 정상, records passthrough 무영향.)
+   - data_merge: 입력 타입 `list`→`table`(생태계 표 출력과 연결 가능), 항목이 시트래퍼면 `item["data"]`를 표로 병합(문서화된 "시트별 통합" 실현). merge 공통컬럼 없을 때 조용한 concat 대체에 `[WARN]` 로그(#29).
+
 ### ⏳ 수정 예정 (순서)
-- A잔여: table 정규화 helper(xlsx_to_md 시트래퍼 언랩) → column_mapping/data_merge/save_xlsx(#0·1).
 - E: 4개 변환노드 npx 전체경로+encoding=utf-8(#15·17·31·39·42).
 
 **회귀 안전망**: `scripts/benchmark_form_fill.py --llm local` 495/495. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 확인.)

@@ -28,10 +28,13 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     context["progress"](0.1)
     context["log"](f"데이터 병합 시작 ({len(table_list)}개, 방식={join_type})")
 
-    # list of dict → DataFrame 변환
+    # 각 항목을 하나의 표(DataFrame)로 변환
     dfs = []
     for item in table_list:
-        if isinstance(item, list):
+        # xlsx_to_md 시트 래퍼({sheet/columns/rows + data: [records]}) → 시트 전체를 한 표로
+        if isinstance(item, dict) and isinstance(item.get("data"), list):
+            dfs.append(pd.DataFrame(item["data"]))
+        elif isinstance(item, list):
             dfs.append(pd.DataFrame(item))
         elif isinstance(item, pd.DataFrame):
             dfs.append(item)
@@ -57,7 +60,11 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
                 if common_cols:
                     result_df = result_df.merge(df, on=common_cols, how="outer")
                 else:
-                    # 공통 컬럼 없으면 cross join 대신 concat
+                    # 공통 컬럼 없으면 키 결합 불가 → 가로 이어붙이기로 대체 (사용자 통보)
+                    context["log"](
+                        "[WARN] 공통 컬럼이 없어 키 기준 결합(merge) 대신 "
+                        "가로 이어붙이기로 대체했습니다 (행 수가 다르면 빈 칸이 생길 수 있음)."
+                    )
                     result_df = pd.concat(
                         [result_df, df], axis=1
                     )

@@ -11,8 +11,8 @@ description: >
 
 inputs:
   - name: 표목록
-    type: list
-    description: 병합할 표 데이터의 리스트
+    type: table
+    description: 병합할 표 데이터 (xlsx_to_md의 시트별 표, 또는 records 표)
 
 outputs:
   - name: 통합표
