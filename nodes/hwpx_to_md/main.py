@@ -16,18 +16,24 @@ from xml.etree import ElementTree as ET
 
 def _convert_with_kordoc(hwpx_path: str) -> str | None:
     """kordoc CLI로 변환 시도."""
-    if not shutil.which("npx"):
+    # Windows에서 CreateProcess가 npx.cmd를 실행하려면 확장자 포함 전체 경로 필요
+    # (["npx", ...]는 .exe만 탐색해 FileNotFoundError → 항상 폴백으로 강등됨)
+    npx = shutil.which("npx")
+    if not npx:
         return None
 
     try:
-        cmd = ["npx", "kordoc", hwpx_path, "--format", "json"]
+        cmd = [npx, "kordoc", hwpx_path, "--format", "json"]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120,
         )
         if result.returncode == 0 and result.stdout.strip():
             import json
             parsed = json.loads(result.stdout)
-            return parsed.get("markdown", result.stdout)
+            md = parsed.get("markdown") if isinstance(parsed, dict) else None
+            if isinstance(md, str) and md.strip():
+                return md
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         pass
     return None

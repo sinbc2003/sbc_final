@@ -33,18 +33,27 @@ def _parse_page_range(pages_str: str, total_pages: int) -> list[int]:
 
 def _convert_with_kordoc(pdf_path: str, pages: str) -> str | None:
     """kordoc CLI로 변환 시도."""
-    if not shutil.which("npx"):
+    # 페이지 범위 지정 시 kordoc은 이를 반영하지 못하므로 pymupdf 경로로 넘긴다
+    if pages and str(pages).strip().lower() not in ("", "전체", "all", "0"):
+        return None
+
+    # Windows에서 CreateProcess가 npx.cmd를 실행하려면 확장자 포함 전체 경로 필요
+    npx = shutil.which("npx")
+    if not npx:
         return None
 
     try:
-        cmd = ["npx", "kordoc", pdf_path, "--format", "json"]
+        cmd = [npx, "kordoc", pdf_path, "--format", "json"]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120,
         )
         if result.returncode == 0 and result.stdout.strip():
             import json
             parsed = json.loads(result.stdout)
-            return parsed.get("markdown", result.stdout)
+            md = parsed.get("markdown") if isinstance(parsed, dict) else None
+            if isinstance(md, str) and md.strip():
+                return md
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         pass
     return None

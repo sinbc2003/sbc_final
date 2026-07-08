@@ -576,7 +576,9 @@ def _build_hwpx(md_text: str, output_path: str) -> str:
 
 def _convert_with_kordoc(md_text: str, output_path: str) -> str | None:
     """kordoc CLI로 변환 시도."""
-    if not shutil.which("npx"):
+    # Windows에서 CreateProcess가 npx.cmd를 실행하려면 확장자 포함 전체 경로 필요
+    npx = shutil.which("npx")
+    if not npx:
         return None
 
     try:
@@ -585,8 +587,11 @@ def _convert_with_kordoc(md_text: str, output_path: str) -> str | None:
         with open(md_tmp, "w", encoding="utf-8") as f:
             f.write(md_text)
 
-        cmd = ["npx", "kordoc", "md-to-hwpx", md_tmp, "-o", output_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        cmd = [npx, "kordoc", "md-to-hwpx", md_tmp, "-o", output_path]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=60,
+        )
 
         os.unlink(md_tmp)
 

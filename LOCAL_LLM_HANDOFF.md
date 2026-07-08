@@ -539,7 +539,15 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
    - column_mapping·save_xlsx가 `to_records`로 입력 정규화 → **xlsx_to_md→column_mapping 시 sheet/rows/columns/data 4컬럼 오염·매핑 전탈락 해소**. (검증: 시트래퍼+학번→학생번호 매핑 정상, records passthrough 무영향.)
    - data_merge: 입력 타입 `list`→`table`(생태계 표 출력과 연결 가능), 항목이 시트래퍼면 `item["data"]`를 표로 병합(문서화된 "시트별 통합" 실현). merge 공통컬럼 없을 때 조용한 concat 대체에 `[WARN]` 로그(#29).
 
-### ⏳ 수정 예정 (순서)
-- E: 4개 변환노드 npx 전체경로+encoding=utf-8(#15·17·31·39·42).
+6. **kordoc npx.cmd Windows 실행 + 인코딩** (#15·17·31·39·40·42·28) — 6개 노드(hwpx_to_md/hwp_to_md/docx_to_md/xlsx_to_md/pdf_to_md/md_to_hwpx):
+   - **전체 경로 사용**: `["npx",...]`→`[shutil.which("npx"),...]`. Windows CreateProcess는 `.exe`만 탐색해 `npx.CMD`를 못 찾아 `FileNotFoundError`로 항상 폴백 강등됐음. **실측 재현**: `["npx","--version"]`→FileNotFoundError, `[fullpath,...]`→OK(npx 11.1.0). kordoc 1순위 경로 Windows에서 부활.
+   - **인코딩 명시**: `subprocess.run(..., encoding="utf-8", errors="replace")` — cp949 기본 디코딩으로 kordoc 한글 UTF-8 출력 깨짐·`UnicodeDecodeError` 방지(#39·42).
+   - **markdown 키 가드**(#40): `parsed.get("markdown", result.stdout)`→키 없으면 원본 JSON 반환하던 것을 `md`가 비어있지 않은 str일 때만 반환(아니면 None→폴백).
+   - **pdf_to_md pages**(#28): 페이지 범위 지정 시 kordoc은 반영 못하므로 pymupdf 경로로 라우팅.
+
+### ⏳ 남은 결함 (낮은 우선순위, 후속)
+- 무음 실패(#7 file_input 변환실패→빈텍스트 "성공", #10 form_extract HWP olefile 누락→플레이스홀더 "성공", #49 llm_generate 청크실패 마커).
+- API 오류 처리(#23 청크 except RuntimeError가 SDK예외 미포착, #26 llm_translate max_tokens=0), lora no-op(#22·51), 프론트 드리프트(defaultNodes vs yaml), .xls 미지원 선언(#8·11), md_to_docx 마커/표 품질(#32·52), image_extract CMYK(#18) 등.
+- **미검증 결함**: 세션 한도로 verify 못 돈 항목(runner temp_dir 미정리, output_dir 미설정시 Desktop 복사 등)은 다음 세션에서 재검증 필요.
 
 **회귀 안전망**: `scripts/benchmark_form_fill.py --llm local` 495/495. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 확인.)
