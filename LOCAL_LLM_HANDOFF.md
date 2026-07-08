@@ -4,7 +4,7 @@
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
 > ## ⏩ 다음 세션은 여기부터 (2026-07-08 Desktop 갱신)
-> **다음 작업 = §14 「노드/엣지/워크플로우 전면 점검·개선」** (사용자 지시, 새 세션 시작). 환경·실행법은 §11, 최근 완료는 §12·13.
+> **§14 감사 1라운드 완료 → 다음 = §15 끝 「남은 저우선 결함」 처리** (무음실패·API오류처리·프론트 드리프트·다른 LLM노드 스키마강제). 40-에이전트 감사로 53확정결함 도출, high 6·구조적 결함(추출→채우기 파이프라인, 러너 입력검증, table 정규화, kordoc) **6커밋 수정·push·벤치 495/495 회귀확인 완료**. 상세 §15. 환경·실행법 §11.
 > ⚠️ 이 프로젝트는 이제 **Desktop(`C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final`, RTX5080)** 에서 작업. 노트북(sinbc) 경로/§10.6 goe_watcher 이슈는 Desktop엔 **해당 없음**.
 >
 > **Desktop에서 완료 (2026-07-08)**:
@@ -550,4 +550,12 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - API 오류 처리(#23 청크 except RuntimeError가 SDK예외 미포착, #26 llm_translate max_tokens=0), lora no-op(#22·51), 프론트 드리프트(defaultNodes vs yaml), .xls 미지원 선언(#8·11), md_to_docx 마커/표 품질(#32·52), image_extract CMYK(#18) 등.
 - **미검증 결함**: 세션 한도로 verify 못 돈 항목(runner temp_dir 미정리, output_dir 미설정시 Desktop 복사 등)은 다음 세션에서 재검증 필요.
 
-**회귀 안전망**: `scripts/benchmark_form_fill.py --llm local` 495/495. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 확인.)
+**회귀 안전망 ✅**: `scripts/benchmark_form_fill.py --llm local` 재실행 → **레벨1 왕복 1126/1126, 마커 1126/1126, 레벨2 로컬 gemma 495/495 (100%)** 재현(2026-07-08, 6개 커밋 후). 엔진 변경(runner/types/loader/table_utils)이 핵심 채우기 경로 무손상 확인. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 별도 확인.) 벤치 후 llama-server 종료로 VRAM 반납.
+
+### 커밋 이력 (origin/main)
+`ceef632` 수정1(llm_extract records+스키마강제, hwpx_fill XML이스케이프) → `30a7624` 수정2(form_fill etree+RegisterModule) → `0913099` 수정3(러너 필수입력검증 15건) → `593ef92` 수정4(table 정규화) → `d5cf4f5` 수정5(kordoc npx 6노드).
+
+### 다음 세션 진입점
+- **남은 저우선 결함**(§위 "남은 결함" 목록): 무음 실패(#7·10·49), API 오류처리(#23·26), lora no-op(#22·51), 프론트 defaultNodes 드리프트(#51 등), .xls 미지원 선언(#8·11), md_to_docx 품질(#32·52). 확정 결함 원문은 세션 scratchpad `confirmed_findings.md`(53건 전체).
+- **세션 한도로 미검증**된 발견(러너 temp_dir 미정리, output_dir 미설정시 Desktop 복사, 프론트 캔버스 UX 다수)은 §14 재감사 시 재검증.
+- **원칙 재확인**: 모든 개선은 "gemma급 소형 로컬 모델로 문서 제어·작성이 잘 되는가" 기준. llm_extract가 이제 json_schema 강제를 쓰므로, **다른 LLM 노드(llm_classify·llm_summarize 등)도 스키마/구조 강제 적용 검토** = 소형모델 신뢰성 다음 레버.

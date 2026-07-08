@@ -17,5 +17,13 @@
     "correct": 1126,
     "total": 1126,
     "diffs": 0
+  },
+  "level2": {
+    "mode": "level2:local",
+    "correct": 495,
+    "total": 495,
+    "accuracy": 100.0,
+    "diffs": [],
+    "result_file": "C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\bench_vn9wbs89\\LLM채움.hwpx"
   }
 }
