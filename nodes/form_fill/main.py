@@ -331,6 +331,8 @@ def _fill_hwpx(form_path: str, fill_data: dict, output_path: str, context):
 
 def _fill_hwpx_section(root, field_map: dict, label_map: dict) -> int:
     """section XML에서 누름틀 필드와 빈 텍스트를 채운다."""
+    from lxml import etree  # 모듈 레벨 함수라 _fill_hwpx의 지역 import를 못 봄
+
     filled = 0
     prev_text = ""
 
@@ -394,7 +396,14 @@ def _fill_hwp(form_path: str, fill_data: dict, output_path: str, context):
     hwp = None
     try:
         hwp = win32com.client.gencache.EnsureDispatch("HWPFrame.HwpObject")
-        hwp.RegisterModule("FilePathCheckerModuleExample", "FilePathCheckerModule")
+        # ModuleType은 반드시 "FilePathCheckDLL" (예제 DLL 이름이 아님).
+        # 등록 실패 시 Open/SaveAs에서 파일접근 승인 대화상자가 떠 무인 실행이 멈춤.
+        if not hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule"):
+            context["log"](
+                "[WARN] 보안모듈(FilePathCheckerModule) 등록 실패 — "
+                "한/글 파일접근 승인 대화상자가 뜰 수 있습니다. "
+                "pyhwpx 설치로 레지스트리 등록이 필요합니다."
+            )
         hwp.Open(os.path.abspath(form_path), "HWP", "forceopen:true")
 
         filled = 0

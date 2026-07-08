@@ -524,8 +524,11 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
    - **다중행 파일명에 행 인덱스 접두어**(`{idx+1:03d}_이름.hwpx`): 동명이인 덮어쓰기·ZIP 중복 방지.
    - 출력 accept `[.hwpx]`→`[.hwpx, .zip]`(다중행은 실제 .zip 반환 → 계약 일치).
 
+3. **form_fill / hwp_to_hwpx 크래시·배포차단** (#2·4) — `nodes/form_fill/main.py`, `nodes/hwp_to_hwpx/main.py`:
+   - **etree 스코프 수정**(#2): `_fill_hwpx_section`(모듈 레벨 함수)이 `_fill_hwpx`의 지역 `etree` import를 못 봐 누름틀/라벨 키 경로에서 항상 `NameError`. 함수 내 `from lxml import etree` 추가. 네임스페이스 section XML로 검증(라벨 "이름"→빈 `<hp:t>`에 값 주입 성공).
+   - **RegisterModule 인자 수정**(#4): `"FilePathCheckerModuleExample"`(예제 DLL명)→`"FilePathCheckDLL"`(정식 ModuleType). 반환 False면 `[WARN]` 로그. **교사 PC 배포 시 한/글 보안 대화상자 블로킹 해소**(pyhwpx 없는 환경). form_fill:397 + hwp_to_hwpx:41 둘 다.
+
 ### ⏳ 수정 예정 (순서)
-- C잔여: form_fill `_fill_hwpx_section` etree 모듈 상단 import(#2), RegisterModule `"FilePathCheckDLL"` 수정(form_fill:397 + hwp_to_hwpx:41, #4).
 - B: `engine/runner.py` 실행 전 필수입력 검증(PortSpec `optional` 필드) → 한국어 메시지(#6·9·14·16·19·21·24·25·27·30·36·38·41·43·46 일괄).
 - A잔여: table 정규화 helper(xlsx_to_md 시트래퍼 언랩) → column_mapping/data_merge/save_xlsx(#0·1).
 - E: 4개 변환노드 npx 전체경로+encoding=utf-8(#15·17·31·39·42).
