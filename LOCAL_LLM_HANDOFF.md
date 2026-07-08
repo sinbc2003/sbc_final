@@ -545,15 +545,20 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
    - **markdown 키 가드**(#40): `parsed.get("markdown", result.stdout)`→키 없으면 원본 JSON 반환하던 것을 `md`가 비어있지 않은 str일 때만 반환(아니면 None→폴백).
    - **pdf_to_md pages**(#28): 페이지 범위 지정 시 kordoc은 반영 못하므로 pymupdf 경로로 라우팅.
 
+### ✅ 2라운드 수정 — LLM 노드 견고화 (소형모델 신뢰성 확장)
+7. **llm_classify** (#47) — `nodes/llm_classify/main.py`: category를 **json_schema `enum`으로 강제**(로컬 GBNF가 목록 밖 값 원천 차단) + 파싱 후 `_match_category`로 목록 대조(완전→부분→강등). 이전엔 LLM이 "물리" 등 목록 밖 값을 그대로 분류결과로 냈음. 빈 입력·빈 카테고리 검증 추가. (검증: 완전/부분/목록밖/비JSON/공백 5케이스.)
+8. **llm_translate** (#26) — 빈 입력 명시적 검증 + `max_tokens=max(256, len(text)*3)` 하한(짧은 입력에서 max_tokens=0으로 API 400·빈 결과 방지).
+9. **llm_generate** (#23·49·50): 청크 `except RuntimeError`→`except Exception`(API SDK RateLimit 등 포착, #23). 청크 실패 추적 → **전부 실패면 중단, 일부 실패면 `[WARN]`**(무음으로 산출물에 `[처리 실패]` 마커 섞이던 것, #49). `_find_input_var`가 첫 변수 대신 **값이 가장 긴 변수** 선택 + `str()` 가드(숫자 param 변수 TypeError·청킹 오선정 방지, #50).
+
 ### ⏳ 남은 결함 (낮은 우선순위, 후속)
-- 무음 실패(#7 file_input 변환실패→빈텍스트 "성공", #10 form_extract HWP olefile 누락→플레이스홀더 "성공", #49 llm_generate 청크실패 마커).
-- API 오류 처리(#23 청크 except RuntimeError가 SDK예외 미포착, #26 llm_translate max_tokens=0), lora no-op(#22·51), 프론트 드리프트(defaultNodes vs yaml), .xls 미지원 선언(#8·11), md_to_docx 마커/표 품질(#32·52), image_extract CMYK(#18) 등.
+- 무음 실패(#7 file_input 변환실패→빈텍스트 "성공", #10 form_extract HWP olefile 누락→플레이스홀더 "성공").
+- lora no-op(#22·51 — llm_generate lora 파라미터가 엔진 전구간 미배선), 프론트 드리프트(defaultNodes vs yaml), .xls 미지원 선언(#8·11), md_to_docx 마커/표 품질(#32·52), image_extract CMYK(#18), pdf/hwp encoding(#39·42 — 5번에서 일부 처리) 등.
 - **미검증 결함**: 세션 한도로 verify 못 돈 항목(runner temp_dir 미정리, output_dir 미설정시 Desktop 복사 등)은 다음 세션에서 재검증 필요.
 
 **회귀 안전망 ✅**: `scripts/benchmark_form_fill.py --llm local` 재실행 → **레벨1 왕복 1126/1126, 마커 1126/1126, 레벨2 로컬 gemma 495/495 (100%)** 재현(2026-07-08, 6개 커밋 후). 엔진 변경(runner/types/loader/table_utils)이 핵심 채우기 경로 무손상 확인. (llm_extract·hwpx_fill는 벤치 경로(grid `fill_hwpx_cells`)와 무관 — 노드 단위 오프라인 검증으로 별도 확인.) 벤치 후 llama-server 종료로 VRAM 반납.
 
 ### 커밋 이력 (origin/main)
-`ceef632` 수정1(llm_extract records+스키마강제, hwpx_fill XML이스케이프) → `30a7624` 수정2(form_fill etree+RegisterModule) → `0913099` 수정3(러너 필수입력검증 15건) → `593ef92` 수정4(table 정규화) → `d5cf4f5` 수정5(kordoc npx 6노드).
+`ceef632` 수정1(llm_extract records+스키마강제, hwpx_fill XML이스케이프) → `30a7624` 수정2(form_fill etree+RegisterModule) → `0913099` 수정3(러너 필수입력검증 15건) → `593ef92` 수정4(table 정규화) → `d5cf4f5` 수정5(kordoc npx 6노드) → `8e4f8fa` §15마무리 → **2라운드**: 수정7(llm_classify enum강제·llm_translate·llm_generate 견고화).
 
 ### 다음 세션 진입점
 - **남은 저우선 결함**(§위 "남은 결함" 목록): 무음 실패(#7·10·49), API 오류처리(#23·26), lora no-op(#22·51), 프론트 defaultNodes 드리프트(#51 등), .xls 미지원 선언(#8·11), md_to_docx 품질(#32·52). 확정 결함 원문은 세션 scratchpad `confirmed_findings.md`(53건 전체).

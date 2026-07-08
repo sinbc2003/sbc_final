@@ -14,6 +14,8 @@ LANG_NAMES = {
 
 def execute(inputs: dict, params: dict, context: dict) -> dict:
     text = inputs.get("입력텍스트", "")
+    if not text or not str(text).strip():
+        raise ValueError("입력 '입력텍스트'가 비어 있습니다 — 상류 노드 연결을 확인하세요.")
     llm = context.get("llm")
     if llm is None:
         raise RuntimeError("LLM 관리자가 설정되지 않았습니다")
@@ -43,9 +45,10 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     context["progress"](0.3)
     context["log"](f"LLM 호출 (provider={provider})")
 
+    # max_tokens 하한 보장 (짧은 입력에서 0/과소로 API 400·빈 결과 방지)
     result = llm.generate(
         prompt,
-        max_tokens=len(text) * 3,
+        max_tokens=max(256, len(text) * 3),
         temperature=0.3,
         provider=provider,
     )

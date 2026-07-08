@@ -46,10 +46,16 @@ def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
-def _find_input_var(template: str) -> str | None:
-    """템플릿에서 가장 큰 변수명 찾기 (청킹 대상)."""
-    matches = re.findall(r"\{\{(.+?)\}\}", template)
-    return matches[0].strip() if matches else None
+def _find_input_var(template: str, variables: dict) -> str | None:
+    """템플릿 변수 중 값이 가장 긴 변수명 찾기 (청킹 대상).
+
+    첫 변수가 아니라 실제 값 길이 기준으로 골라야 긴 입력이 청킹 대상이 된다.
+    (param 변수 {{temperature}} 등이 먼저 와도 오선정하지 않음)
+    """
+    keys = [m.strip() for m in re.findall(r"\{\{(.+?)\}\}", template)]
+    if not keys:
+        return None
+    return max(keys, key=lambda k: len(str(variables.get(k, ""))))
 
 
 def execute(inputs: dict, params: dict, context: dict) -> dict:
@@ -79,14 +85,15 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
 
     # ── 긴 문서 자동 분할 (map-reduce) ────────────
     if len(prompt) > CHUNK_THRESHOLD:
-        input_var = _find_input_var(template)
-        input_text = variables.get(input_var, "") if input_var else ""
+        input_var = _find_input_var(template, variables)
+        input_text = str(variables.get(input_var, "")) if input_var else ""
 
         if input_text and len(input_text) > CHUNK_THRESHOLD:
             chunks = _split_text(input_text, CHUNK_SIZE, CHUNK_OVERLAP)
             context["log"](f"문서가 길어 {len(chunks)}개로 나눠서 처리합니다 ({len(input_text)}자)")
 
             results = []
+            failures = 0
             for i, chunk in enumerate(chunks):
                 context["progress"](0.1 + 0.8 * i / len(chunks))
                 context["log"](f"  {i+1}/{len(chunks)} 처리 중...")
@@ -94,13 +101,26 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
                 chunk_vars[input_var] = chunk
                 chunk_prompt = _render_template(template, chunk_vars)
                 try:
+                    # API SDK 예외(RateLimit 등)도 잡아야 청크 단위 복구가 동작
                     r = llm.generate(chunk_prompt, max_tokens=max_tokens,
                                      temperature=temperature, lora=lora,
                                      provider=provider, model=model)
                     results.append(r)
-                except RuntimeError as e:
+                except Exception as e:
+                    failures += 1
                     context["log"](f"  {i+1}/{len(chunks)} 오류: {e}")
                     results.append(f"[처리 실패: {e}]")
+
+            # 무음 실패 방지: 전부 실패면 중단, 일부 실패면 경고
+            if failures == len(chunks):
+                raise RuntimeError(
+                    f"모든 청크({len(chunks)}개) 처리 실패 — 마지막 오류: {results[-1]}"
+                )
+            if failures:
+                context["log"](
+                    f"[WARN] {failures}/{len(chunks)}개 청크 처리 실패 — "
+                    f"결과에 '[처리 실패]' 표시가 포함됩니다. 최종 문서를 확인하세요."
+                )
 
             # 결과 합치기
             if len(results) > 1:
@@ -128,7 +148,8 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     try:
         result = llm.generate(prompt, max_tokens=max_tokens, temperature=temperature,
                               lora=lora, provider=provider, model=model)
-    except RuntimeError as e:
+    except Exception as e:
+        # API SDK 예외(RateLimit·인증 등)도 로그로 표면화 후 전파
         context["log"](f"AI 오류: {e}")
         raise
 
