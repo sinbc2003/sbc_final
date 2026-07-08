@@ -572,4 +572,5 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 ### 다음 세션 진입점
 - **남은 저우선 결함**(§위 "남은 결함" 목록): 무음 실패(#7·10·49), API 오류처리(#23·26), lora no-op(#22·51), 프론트 defaultNodes 드리프트(#51 등), .xls 미지원 선언(#8·11), md_to_docx 품질(#32·52). 확정 결함 원문은 세션 scratchpad `confirmed_findings.md`(53건 전체).
 - **세션 한도로 미검증**된 발견(러너 temp_dir 미정리, output_dir 미설정시 Desktop 복사, 프론트 캔버스 UX 다수)은 §14 재감사 시 재검증.
-- **원칙 재확인**: 모든 개선은 "gemma급 소형 로컬 모델로 문서 제어·작성이 잘 되는가" 기준. llm_extract가 이제 json_schema 강제를 쓰므로, **다른 LLM 노드(llm_classify·llm_summarize 등)도 스키마/구조 강제 적용 검토** = 소형모델 신뢰성 다음 레버.
+- **원칙 재확인**: 모든 개선은 "gemma급 소형 로컬 모델로 문서 제어·작성이 잘 되는가" 기준. llm_extract·llm_classify가 이제 json_schema 강제(GBNF)를 쓰므로 추출·분류는 소형모델이 100%. **다음 큰 레버 = LoRA 증류(생성 품질)**.
+- **📄 LoRA 착수 = `GEMMA_LORA_GUIDE.md`(리포 루트, 신규)**: 이번 감사에서 확보한 노드별 LLM 계약(=학습데이터 스키마)·프롬프트 원문·역할분담 경계·**lora 배선 공백 정확한 위치(#22 실측: `_start_llama_server`에 `--lora` 없음, `_generate_local`이 lora 무시, `_find_lora` 죽은코드)**·증류 파이프라인·검증 안전망·착수 체크리스트 8단계. **LoRA 주 타깃 = llm_generate(생성) 하나** — 추출·분류는 스키마강제로 이미 100%라 LoRA 불필요(넣으면 오히려 베이스 능력 열화, §9).
