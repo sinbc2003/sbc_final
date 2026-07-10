@@ -243,10 +243,22 @@ class LLMManager:
         temperature: float = 0.3,
         provider: str = "openai",
         model: str = "gpt-4.1",
+        json_schema: dict | None = None,
     ):
-        """멀티턴 대화 스트리밍. 텍스트 청크를 yield."""
+        """멀티턴 대화 스트리밍. 텍스트 청크를 yield.
+
+        json_schema는 로컬에서만 GBNF 강제(단일 청크로 반환 — llama-server의
+        문법 강제 스트리밍 대신 완성 응답을 한 번에 yield).
+        """
         if "/" in provider:
             provider, model = provider.split("/", 1)
+
+        if provider == "local":
+            yield self._generate_local_chat(
+                messages, max_tokens=max_tokens, temperature=temperature,
+                json_schema=json_schema,
+            )
+            return
 
         if provider == "openai":
             from openai import OpenAI

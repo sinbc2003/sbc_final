@@ -656,11 +656,17 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **E2E**: 한/글에 상담신청서 열어놓고 채팅 "2학년 5반 박서준…신청서 빈칸 채워줘" → 의도 감지 → gemma 4/4 배치 → 캐럿 라이브 기록 → "빈칸 4개를 문서에 채웠습니다" 응답. 비-채우기 질문("제목이 뭐야?")은 기존 경로 폴백 + gemma가 문서 읽고 정답. 의도 감지 단위 8케이스.
 - 한계: 혼합 명령("빈칸 채우고 제목 바꿔줘")은 fill만 수행. `/api/chat/live/stream`(스트리밍)은 미통합 — 프론트가 non-stream 경로 쓰면 동작.
 
+### 스트림 통합 + 라이브 액션 GBNF 강제 (2026-07-11 ✅ — "문법책" 마지막 공백 해소)
+> **중요**: 프론트(ChatMode.tsx)는 `/api/chat/live/stream`만 사용 — non-stream 라우팅만으론 UI에서 동작 안 했음. 이번에 스트림 경로까지 완성.
+- **스트림 fill-live 라우팅**: `chat_live_stream`이 채우기 의도 감지 시 SSE 안에서 `run_fill_live` 실행(thinking→reply_done→done), 실패 시 기존 액션 흐름으로 폴백(준비를 지연 실행하는 `_prepare()` 구조).
+- **라이브 액션 envelope GBNF 강제(로컬)**: `live_chat.py`에 `LIVE_HWP_ACTIONS`(23종, skills/hwp.md 계약)·`build_live_envelope_schema`(`{응답, 액션[{action enum, params}]}`)·`parse_envelope_response`. provider=local이면 handle_live_chat·스트림 모두 GBNF 강제 → **액션명 오타·형식 오류 원천 차단**(질문은 액션 [] + 응답만). `generate_chat_stream`에 json_schema+local 분기(단일 청크). 스킬에 로컬용 형식 노트 자동 첨부.
+- **리팩터 회귀 1건 E2E가 적발·수정**: 스트림 준비 로직 함수화 과정에서 액션 실행부의 `live` 미정의(NameError) → `deps.get_live()`로 수정.
+- **E2E 3/3 (프론트 실경로 /stream, 로컬 gemma)**: ①"…확인서 빈칸 채워줘"→fill-live 3/3 채움 ②"제목을 …로 바꿔줘"→envelope 강제→`replace_paragraph` 실행→문서 실변경 확인 ③"제목이 뭐야?"→액션 0·정답(직전 편집된 새 제목을 읽어 답변). envelope 단위 4케이스.
+
 ### 남은 것 / 다음 후보
-- **gemma용 스킬 지침 개편**: `engine/skills/hwp.md`(22종 액션 나열, 원래 API 모델용)를 gemma에 맞게 — 액션 축소·few-shot 강화·**액션 JSON을 json_schema(GBNF)로 강제**(현재 라이브 채팅은 스키마 강제 없이 텍스트 파싱). 파일채움이 495/495인 이유가 스키마 강제임을 라이브 채팅에도 적용.
-- `/api/chat/live/stream`에도 fill-live 라우팅 통합.
+- skills/hwp.md 본문을 gemma 친화로 다이어트(액션 수 축소·few-shot 재구성) — envelope+GBNF가 형식은 잡아주므로 우선순위 낮아짐. excel/ppt 액션 카탈로그의 envelope 확장.
 - 활성 문서가 **저장 안 된 수정 상태**면 파일 그리드와 화면이 다름 → 검산+대량불일치 가드가 막아주지만, 저장 유도/자동 스냅샷 개선 여지.
-- 본문 밑줄 블랭크 라이브 기록(현재 파일 경로만), 중첩 표 문서, plan에 마커 이동 통합, §18 리뷰 잔여 4건 재검증.
+- 본문 밑줄 블랭크 라이브 기록(현재 파일 경로만), 중첩 표 문서, plan에 마커 이동 통합, §18 리뷰 잔여 4건 재검증, HWPML block_id 편집 실행 신뢰성(§5 잔여 — 편집은 커서 스캔 CVD일 때 안정).
 
 ---
 

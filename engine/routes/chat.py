@@ -240,23 +240,60 @@ async def live_execute_batch(req: BatchExecuteRequest):
 @router.post("/api/chat/live/stream")
 async def chat_live_stream(req: StreamChatRequest):
     import asyncio
-    from engine.chat_handler import prepare_live_chat_messages, parse_actions_response
-
-    if req.app_type == "hwp":
-        await _ensure_hwp_connection(req.doc_index)
-
-    live = deps.get_live()
-    if req.app_type not in live._connections:
-        await deps.run_on_com(live.connect, req.app_type)
-
-    # 1단계: COM 스레드에서 메시지 준비 (문서 읽기 포함)
-    messages, provider, model_name = await deps.run_on_com(
-        prepare_live_chat_messages,
-        req.message, req.app_type, req.history, live,
-        req.model, req.design_skill,
+    from engine.chat_handler import (
+        prepare_live_chat_messages, parse_actions_response, detect_live_fill_intent,
     )
+    from engine.chat.live_chat import build_live_envelope_schema, parse_envelope_response
+
+    # 채우기 의도 → fill-live 라우팅 (스트림 내부에서 처리, 실패 시 기존 흐름 폴백)
+    fill_intent = req.app_type == "hwp" and detect_live_fill_intent(req.message)
+
+    messages, provider, model_name = None, None, None
+
+    async def _prepare():
+        if req.app_type == "hwp":
+            await _ensure_hwp_connection(req.doc_index)
+        live_c = deps.get_live()
+        if req.app_type not in live_c._connections:
+            await deps.run_on_com(live_c.connect, req.app_type)
+        return await deps.run_on_com(
+            prepare_live_chat_messages,
+            req.message, req.app_type, req.history, live_c,
+            req.model, req.design_skill,
+        )
+
+    if not fill_intent:
+        # 1단계: COM 스레드에서 메시지 준비 (문서 읽기 포함)
+        messages, provider, model_name = await _prepare()
 
     async def stream():
+        nonlocal messages, provider, model_name
+
+        # ── fill-live: gemma 그리드 배치 → 캐럿 라이브 기록 ──
+        if fill_intent:
+            yield f"data: {json.dumps({'type': 'thinking'}, ensure_ascii=False)}\n\n"
+            from engine.routes.hwp import run_fill_live
+            if req.model and "/" in req.model:
+                f_provider, f_model = req.model.split("/", 1)
+            else:
+                f_provider, f_model = (req.model or "auto"), ""
+            fill = await run_fill_live(
+                instruction=req.message, provider=f_provider, model=f_model,
+            )
+            if fill.get("ok"):
+                filled = fill.get("filled", 0)
+                reply = f"빈칸 {filled}개를 문서에 채웠습니다."
+                if fill.get("skipped"):
+                    reply += f" ({len(fill['skipped'])}개는 확인이 필요해 건너뜀)"
+                if fill.get("file"):
+                    from pathlib import Path as _P
+                    reply += f"\n완성 파일: `{_P(fill['file']).name}`"
+                yield f"data: {json.dumps({'type': 'reply_done', 'content': reply}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'summary': f'{filled}개 채움'}, ensure_ascii=False)}\n\n"
+                return
+            # 폴백: 채울 빈칸 없음/비hwpx 등 → 기존 액션 경로 준비 후 계속
+            messages, provider, model_name = await _prepare()
+
         if not messages:
             yield f"data: {json.dumps({'type': 'reply', 'content': '스킬 없음'}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'summary': '오류'}, ensure_ascii=False)}\n\n"
@@ -264,6 +301,9 @@ async def chat_live_stream(req: StreamChatRequest):
 
         # 2단계: "생각 중" 알림
         yield f"data: {json.dumps({'type': 'thinking'}, ensure_ascii=False)}\n\n"
+
+        # 로컬 모델: 액션 envelope GBNF 강제 (액션명 오타·형식 오류 원천 차단)
+        envelope_schema = build_live_envelope_schema(req.app_type) if provider == "local" else None
 
         # 3단계: LLM 스트리밍 — 동기 제너레이터를 async로 브릿지
         full_reply = ""
@@ -275,6 +315,7 @@ async def chat_live_stream(req: StreamChatRequest):
                 for chunk in deps.llm_manager.generate_chat_stream(
                     messages, max_tokens=4096, temperature=0.1,
                     provider=provider, model=model_name,
+                    json_schema=envelope_schema,
                 ):
                     loop.call_soon_threadsafe(q.put_nowait, ("token", chunk))
             except Exception as e:
@@ -294,18 +335,24 @@ async def chat_live_stream(req: StreamChatRequest):
             full_reply += data
             yield f"data: {json.dumps({'type': 'token', 'content': data}, ensure_ascii=False)}\n\n"
 
-        # 4단계: 완성된 응답에서 액션 파싱
+        # 4단계: 완성된 응답에서 액션 파싱 — envelope(스키마 강제) 우선
         import re
         friendly_reply = full_reply
-        json_match = re.search(r"```(?:json)?\s*\n?", full_reply)
-        if json_match:
-            before = full_reply[:json_match.start()].strip()
-            if before:
-                friendly_reply = before
+        actions = None
+        envelope = parse_envelope_response(full_reply) if envelope_schema else None
+        if envelope is not None:
+            env_reply, actions = envelope
+            friendly_reply = env_reply or friendly_reply
+        else:
+            json_match = re.search(r"```(?:json)?\s*\n?", full_reply)
+            if json_match:
+                before = full_reply[:json_match.start()].strip()
+                if before:
+                    friendly_reply = before
+            actions = parse_actions_response(full_reply)
 
         yield f"data: {json.dumps({'type': 'reply_done', 'content': friendly_reply}, ensure_ascii=False)}\n\n"
 
-        actions = parse_actions_response(full_reply)
         if not actions:
             yield f"data: {json.dumps({'type': 'done', 'summary': '실행할 작업 없음'}, ensure_ascii=False)}\n\n"
             return
@@ -321,12 +368,13 @@ async def chat_live_stream(req: StreamChatRequest):
         yield f"data: {json.dumps({'type': 'actions', 'count': len(actions)}, ensure_ascii=False)}\n\n"
 
         # 5단계: 액션 실행 스트리밍
+        live_exec = deps.get_live()
         ok, fail = 0, 0
         for i, act in enumerate(actions):
             action_name = act.get("action", "")
             params = act.get("params", {})
             try:
-                r = await deps.run_on_com(live.execute, req.app_type, action_name, params)
+                r = await deps.run_on_com(live_exec.execute, req.app_type, action_name, params)
                 success, msg = r.success, r.message
             except Exception as e:
                 success, msg = False, str(e)
