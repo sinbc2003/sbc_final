@@ -616,10 +616,45 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **주의**: 실사용은 gemma-only. Opus 스크립트 매핑 금지 — 로직은 전부 제품 코드에 넣어 gemma가 소비하게.
 
 ### 미해결 (누적)
-- 라이브 COM 복잡표 행/열 복원(§5 gap #2) — 위 3.
+- ~~라이브 COM 복잡표 행/열 복원(§5 gap #2)~~ → **§18에서 해결** (그리드↔스캔 정렬, 벤치 1126/1126).
 - ~~form_assist json_schema·그리드 전환~~ → **§17에서 완료**.
 - LoRA 증류(생성 품질) — `GEMMA_LORA_GUIDE.md`, 별도 트랙.
 - 감사 남은 저우선 결함(§15 목록) + 미검증 결함(runner temp_dir/output_dir Desktop복사).
+
+---
+
+## 18. 작업 기록 — 2026-07-10 (gemma 라이브 문서제어 — §5 gap#2 해결 + /api/hwp/fill-live)
+
+> 사용자 목표 재확인: **"inline-ai처럼, 로컬 소형 gemma가 Opus/Fable 도움 없이 열린 문서를 라이브 제어하며 빈칸 채우고 글 쓰기."** §17까지는 결정(gemma 그리드 배치)은 완성됐지만 기록이 파일(ZIP) 수정이라 캐럿이 움직이는 라이브 UX가 아니었음. 이번에 §16-3 설계(스캔·그리드 매칭)를 구현해 라이브 절반을 완성.
+
+### 🎯 헤드라인: 그리드↔COM스캔 정렬로 §5 gap#2(일렬스캔→행열복원) 해결
+**복잡 병합 채용점수표(16표)에서 그리드 셀(XML 순서) ↔ InitScan 셀(list_id 순서)이 1126:1126 완전 일치** — "COM 스캔은 셀을 일렬로만 줘서 병합표에서 행/열을 못 되짚는다"던 난제가, **두 순회가 같은 문서 내부 순서라는 사실 + 셀 텍스트 검산**으로 풀림. 검산 실패 셀은 기록하지 않는 fail-safe(오기록 원천 차단).
+
+### 구현 (3파일)
+- **`engine/hwp/grid_live.py` (신규)**: `grid_cells_in_doc_order`(그리드 셀을 tr/tc XML 순서로) + `scan_cells_in_order`(스캔 td를 list_id 최초등장 순서로, 멀티문단 셀 병합) + `align_grid_to_scan`(셀 수 일치 확인 → 쌍별 텍스트 검산(공백 제거 비교 — 멀티문단 셀을 그리드는 무공백/스캔은 공백으로 연결하는 차이 흡수) → {셀ID: COM좌표}) + `fill_grid_live`(셀ID→set_pos→is_cell→SelectAll→insert_text 라이브, 누름틀→put_field_text 네이티브, 본문블랭크는 라이브 미지원 보고, '_완성' 저장). 중첩 표 문서는 정렬 거부(순서 가설 불성립).
+- **`engine/form_assist.py`**: `plan_hwpx_grid_fill` 신규 — run_form_assist의 hwpx_grid 모드와 동일한 라벨그리드+json_schema(enum) 프롬프트로 gemma 배치 결정만 수행(COM 무관, 파일/라이브 겸용). `scan_hwp_structure`에 `timeout` 파라미터(기본 15초, 대형 문서용).
+- **`engine/routes/hwp.py`**: `POST /api/hwp/fill-live` — {instruction, path?(비우면 활성 문서), context?, provider, model}. 오케스트레이션: [COM] 문서 확보+스캔 → [스레드풀] gemma 계획 → [COM] 정렬+라이브 기록+저장. .hwpx만(레거시 .hwp는 form-assist).
+
+### 검증 (전부 실제 한/글 COM)
+1. **정렬 검산(벤치, 읽기전용)**: 병합 16표 1126셀 — 그리드 1126 vs 스캔 1126, 검산 **1126/1126 일치**(공백무시 비교 후 불일치 0).
+2. **결정적 라이브 기록(벤치)**: 러시아어 1차 표 22셀 클리어 → 한/글에서 캐럿 라이브 기록 22/22 → 재파싱 채점 **22/22 + 전체 1126/1126 무손상**("이하빈칸" 분산 글자까지 정확).
+3. **gemma 풀 E2E**: "수학과 김하늘, 전국 수학경시대회 고등부 참가" → gemma가 ○○○ 자리표시자 4칸 배치 결정 → 캐럿 라이브 기록 4/4.
+4. **HTTP E2E(사용자 시나리오)**: 한/글에 문서 열어놓고 `POST /api/hwp/fill-live`(path 없이) → **활성 문서 자동 감지** → gemma 4/4 라이브 기록 → 바탕화면 `_완성.hwpx`.
+
+### 환경 이슈 (재발 대비)
+- **한/글 COM CoCreateInstance "서버 실행 실패"**: 콜드스타트(V3 검사 ~99초)가 Dispatch 타임아웃을 넘겨 발생 가능 → gencache 초기화 후 재시도로 해결(deps.create_fresh_hwp 패턴). 콜드스타트 후 웜 상태에서는 즉시 연결.
+
+### 적대적 리뷰 + 수정 (⚠️ 부분 검증 — Anthropic 월 한도로 verify 7/9 중단)
+- 탐색 9건 중 **검증 완료 2건 CONFIRMED → 수정**: ①`_connect_hwp` 문서 매칭이 부분문자열('양식.hwpx'⊂'제출용 양식.hwpx')이라 **엉뚱한 열린 문서에 기록** 가능 → 전체경로/베이스네임 정확 일치로 교체. ②fill-live 스캔(120s)이 단일 COM 스레드를 독점해 다른 엔드포인트 블로킹 → 경로 확보(짧은 COM)→확장자 검증→스캔 분리 + `scan_timeout` 요청 필드(기본 30s, 5~120 클램프).
+- **미검증 지적 중 API 문서로 직접 확인해 방어 수정 3건**: `set_pos` bool 반환 무시(실패 시 캐럿이 직전 셀에 남아 덮어씀) → 반환 확인 후 건너뜀. `put_field_text`는 없는 필드 무음 무시 → `field_exist` 가드. SaveAs 후 파일 존재 확인. + 정렬 대량 불일치(>20%) 시 전체 중단(순서 붕괴/미저장 수정 의심).
+- 수정 후 결정적 라이브 벤치 재실행: **22/22 + 전체 1126/1126 무손상** 유지.
+- **월 한도로 verify 못 돈 지적 4건**(다음 세션 재검증): reorder 시 쌍별 검산 한계(→대량 불일치 가드로 부분 완화), 기록 시점 TOCTOU(스캔↔기록 사이 사용자 편집), plan_hwpx_grid_fill에 relocate_below_markers 미적용(라이브 경로 마커 이동 없음 — 파일 경로엔 있음), filled 카운트 정직성.
+
+### 남은 것 / 다음 후보
+- **채팅 통합**: `/api/chat/live`에서 채우기 의도 감지 시 fill-live 흐름 자동 라우팅(현재는 전용 엔드포인트) — 사용자 UX의 마지막 조각.
+- **gemma용 스킬 지침 개편**: `engine/skills/hwp.md`(22종 액션 나열, 원래 API 모델용)를 gemma에 맞게 — 액션 축소·few-shot 강화·**액션 JSON을 json_schema(GBNF)로 강제**(현재 라이브 채팅은 스키마 강제 없이 텍스트 파싱). 파일채움이 495/495인 이유가 스키마 강제임을 라이브 채팅에도 적용.
+- 활성 문서가 **저장 안 된 수정 상태**면 파일 그리드와 화면이 다름 → 검산+대량불일치 가드가 막아주지만, 저장 유도/자동 스냅샷 개선 여지.
+- 본문 밑줄 블랭크 라이브 기록(현재 파일 경로만), 중첩 표 문서, plan에 마커 이동 통합.
 
 ---
 

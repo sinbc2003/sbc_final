@@ -318,6 +318,79 @@ def run_form_assist(
     return result
 
 
+# ── 그리드 배치 계획 (라이브 기록용 — run_form_assist와 동일 프롬프트/스키마) ──
+
+def plan_hwpx_grid_fill(
+    form_path: str,
+    instruction: str,
+    context_text: str = "",
+    llm_provider: str = "local",
+    llm_model: str = "",
+    llm_config: dict = None,
+    log=None,
+) -> dict:
+    """hwpx 양식의 채움 계획을 gemma가 결정 — {셀ID|본문ID|누름틀명: 값} 반환.
+
+    run_form_assist의 hwpx_grid 모드와 같은 라벨그리드+json_schema(enum) 방식.
+    COM 불필요(파일 파싱만) — 라이브 기록(grid_live)과 파일 채움 어느 쪽에도 사용 가능.
+    """
+    def _log(msg):
+        if log:
+            log(msg)
+
+    from engine.hwpml.hwpx_grid import (
+        parse_hwpx, extract_blank_fields, extract_body_blanks,
+    )
+
+    grid_doc = parse_hwpx(form_path)
+    grid_fields = [
+        f for f in extract_blank_fields(grid_doc, include_filled=True)
+        if f.get("value_type") == "text" and _is_fillable(f)
+    ]
+    grid_fields += extract_body_blanks(form_path)
+    grid_fields += _extract_hwpx_fields(form_path)
+    if not grid_fields:
+        _log("채울 빈칸 없음 (표/본문/누름틀)")
+        return {"fill_data": {}, "grid_doc": grid_doc, "blank_ids": set()}
+
+    blank_ids = {f["id"] for f in grid_fields}
+    json_schema = _build_fill_schema(sorted(blank_ids))
+    _log(f"양식 그리드: 표 {len(grid_doc.tables)}개, 채울 빈칸 {len(grid_fields)}개")
+
+    grid_render = grid_doc.render_text(mark_blanks=True)
+    if len(grid_render) > 12000:
+        grid_render = grid_render[:12000] + "\n…(생략)"
+
+    prompt = f"""당신은 교사의 공문 양식을 채우는 비서입니다.
+
+## 참고 문서
+{context_text if context_text else "(참고 문서 없음)"}
+
+## 교사 지시사항
+{instruction if instruction else "(없음)"}
+
+## 출력 양식: {Path(form_path).name}
+### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)
+{grid_render}
+
+### 채워야 할 빈칸 ({len(grid_fields)}개)
+{_render_blank_list(grid_fields)}
+
+위 참고 문서와 교사 지시를 바탕으로, 각 빈칸에 알맞은 값을 넣으세요.
+- 빈칸 라벨(행 이름 × 열 이름)의 의미에 맞는 값을 채우세요.
+- 값을 알 수 없거나 채울 필요가 없는 빈칸은 생략하세요.
+- 이미 의미 있는 값이 들어 있는 칸은 그대로 두세요(비어 있을 때만 채움).
+- id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.
+"""
+    llm_response = _call_llm(prompt, llm_provider, llm_model, llm_config or {},
+                             json_schema=json_schema)
+    _log(f"AI 응답: {len(llm_response)}자")
+    fill_data = _parse_fill_response(llm_response, blank_ids)
+    _log(f"배치 결정: {len(fill_data)}개 항목")
+    return {"fill_data": fill_data, "grid_doc": grid_doc, "blank_ids": blank_ids,
+            "raw_response": llm_response}
+
+
 # ── 라이브 HWP 채우기 ──
 
 def _is_windows():
@@ -340,7 +413,11 @@ def _connect_hwp(form_path: str, log) -> "tuple[any, bool]":
         for i in range(xdocs.Count):
             doc = xdocs.Item(i)
             full = getattr(doc, 'FullName', '') or ''
-            if target_name.lower() in full.lower():
+            # 정확 일치만 — 부분문자열 매칭('양식.hwpx' ⊂ '제출용 양식.hwpx')은
+            # 엉뚱한 문서를 활성화해 그 창에 기록하는 사고로 이어진다.
+            same_path = os.path.normcase(os.path.abspath(full)) == os.path.normcase(abs_path)
+            same_name = Path(full).name.lower() == target_name.lower()
+            if full and (same_path or same_name):
                 doc.SetActive_XHwpDocument()
                 need_open = False
                 log(f"이미 열린 문서에서 작업: {target_name}")
@@ -357,7 +434,7 @@ def _connect_hwp(form_path: str, log) -> "tuple[any, bool]":
     return hwp, need_open
 
 
-def scan_hwp_structure(form_path: str, log) -> list[dict]:
+def scan_hwp_structure(form_path: str, log, timeout: float = 15.0) -> list[dict]:
     """한/글 문서를 InitScan으로 스캔하여 셀/문단 구조 반환. (COM 스레드 전용)
 
     Inline AI 역공학 기반: init_scan → get_text → get_pos 패턴.
@@ -378,9 +455,9 @@ def scan_hwp_structure(form_path: str, log) -> list[dict]:
 
         prev_pos = None
         scan_start = _time.monotonic()
-        for _ in range(10000):  # 무한루프 방지
-            if _time.monotonic() - scan_start > 15:
-                log("스캔 타임아웃 (15초)")
+        for _ in range(20000):  # 무한루프 방지
+            if _time.monotonic() - scan_start > timeout:
+                log(f"스캔 타임아웃 ({timeout:.0f}초)")
                 break
             state, text = hwp.get_text()
             if state <= 1:
