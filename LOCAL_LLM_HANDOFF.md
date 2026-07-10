@@ -661,4 +661,15 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 ### 추가 하드닝 (2026-07-10, 같은 세션)
 - **HTTP E2E ✅**: 엔진 서버(uvicorn :8407, `--reload` 없이 단일프로세스) 기동 → `POST /api/form-assist` 멀티파트 업로드(현장체험학습 5빈칸, provider=local) → **라우트가 .hwpx COM 스캔 안 함 확인** + gemma 5빈칸 정확 채움 + `체험학습양식_완성.hwpx` 생성. 제품 경로(업로드→run_on_com→스레드풀→그리드→form_fill→응답) 전체 실동작. (scratchpad `test_http_e2e.py`)
 - **누름틀 과충전(리뷰 PLAUSIBLE) → CONFIRMED 후 수정**: `_fill_hwpx_section`의 라벨 퍼지매칭이 누름틀 값을 **인접 라벨-매칭 빈셀에도 채움**(합성XML 재현: filled=2, 무관셀 오염). **수정**: `hwpx_grid._fill_fields_precise`(fieldBegin name==키 정확일치 → 첫 `<t>`만) 신설 + `fill_hwpx_cells(field_map=)` 옵션 추가. form_assist 그리드 주입을 `form_fill.execute`(퍼지) → `fill_hwpx_cells`(그리드ID) + `field_map`(누름틀 정밀) 분리로 되돌림. **검증**: 과충전 방지 단위테스트(누름틀만 1개, 무관셀 무손상), 누름틀 주입 hwpx로 extract→정밀채움 2/2, 벤치 495/495·gemma E2E 4/4 회귀.
-- **다음 후보**: ①§16-2 계산 안전망(파생 산수 코드 재계산) — **범용 계산열 감지가 난제**(채용표 `합계=서류+평균` 등 폼별 관계 일반화 불가, 오검출 시 데이터손상 → 폼 힌트/폼유형별 핸들러 방식 권장, 위험한 범용 recompute 지양) ②본문밑줄 `___` 블랭크(표/누름틀 아님, 미지원) ③LoRA 증류.
+- ~~②본문밑줄 `___` 블랭크~~ → **아래에서 완료**.
+
+### 본문 밑줄 블랭크 지원 (2026-07-10, 같은 세션 — "성명: ______" 식 본문 빈칸)
+- **구현**: `hwpx_grid`에 `BODY_ID_RE`(`s{섹션}_u{순번}`)·`BLANK_RUN_RE`(`[_＿]{3,}`)·`_iter_body_t`(본문 walker)·`extract_body_blanks`(라벨=같은 문단 앞뒤 문맥, 인접 블랭크 경계에서 절단)·`fill_hwpx_cells(body_map=)`(밑줄런만 값으로 교체, 나머지 텍스트 보존). **추출·채움이 같은 walker+regex를 공유해 카운터(ID) 정합 보장** — 그리드의 "파싱·채움 같은 순회" 원칙 그대로. form_assist `.hwpx` 분기가 본문 블랭크를 enum에 포함, 주입은 그리드ID/본문ID/누름틀명 3-way 분리.
+- **적대적 리뷰(6-에이전트) CONFIRMED 4결함 → 전부 수정·재현테스트 통과**:
+  1. 빈 값("")이 밑줄런 삭제(수기 기입란 소실) → body 그룹핑에서 빈 값 스킵(그리드 ""=클리어 의미는 본문에 미적용).
+  2. 누름틀 표시 밑줄 이중 추출(body+누름틀 2개로 제시, 채움 순서 의존) → `_iter_body_t`가 fieldBegin~fieldEnd depth 추적, 내부 t 제외. 보조: `_fill_fields_precise`가 라벨 섞인 t는 밑줄런만 치환(접두 "성명: " 보존).
+  3. 장식 구분선이 hwp_text 폴백 차단(문맥 없는 밑줄이 enum 잠금) → 방출 조건 = 같은 문단 문맥 존재 + 길이<15. **카운터는 모든 매치에 증가(방출만 스킵) → 채움 카운터와 정합 유지**(테스트: 구분선 스킵 후 s0_u1 정확 채움).
+  4. 헤더/푸터 괘선 필드화 → walker skip에 header/footer/footNote/endNote/masterPage 추가.
+- **검증**: 4결함 재현테스트 5케이스 + 결정적(추출 3/3·직접채움 2/2·form_assist 혼합 본문2+셀1+무효1필터) + **gemma E2E 5/5**(수강신청서: 본문 성명/학년반/보호자 + 표 강좌명/수강료 전부 정확 배치) + 벤치 495/495 회귀.
+- **알려진 한계**: 밑줄 문자가 아닌 "밑줄 서식+공백" 빈칸(charPr underline)은 미지원. 서명란 "(인)" 밑줄은 enum에 포함되며 채움 여부는 LLM 판단(프롬프트 "생략하세요" 지시) — 필요시 제품 결정으로 제외 가능.
+- **다음 후보**: ①§16-2 계산 안전망(파생 산수 코드 재계산) — **범용 계산열 감지가 난제**(채용표 `합계=서류+평균` 등 폼별 관계 일반화 불가, 오검출 시 데이터손상 → 폼 힌트/폼유형별 핸들러 방식 권장, 위험한 범용 recompute 지양) ②LoRA 증류(`GEMMA_LORA_GUIDE.md`) ③E2B(2B) 모델 검증(§13 끝).

@@ -112,14 +112,18 @@ def run_form_assist(
                 log(f"  빈칸 추출 실패: {e}")
                 blanks_json = "[]"
         elif t_ext == ".hwpx":
-            # 병합-인지 그리드 빈칸(행헤더×열헤더 라벨) + 누름틀 — 전부 COM 불필요.
+            # 병합-인지 그리드 빈칸(행헤더×열헤더 라벨) + 본문 밑줄 블랭크 + 누름틀
+            # — 전부 COM 불필요.
             try:
-                from engine.hwpml.hwpx_grid import parse_hwpx, extract_blank_fields
+                from engine.hwpml.hwpx_grid import (
+                    parse_hwpx, extract_blank_fields, extract_body_blanks,
+                )
                 grid_doc = parse_hwpx(output_template["path"])
                 grid_fields = [
                     f for f in extract_blank_fields(grid_doc, include_filled=True)
                     if f.get("value_type") == "text" and _is_fillable(f)
                 ]
+                grid_fields += extract_body_blanks(output_template["path"])  # 본문 ___
                 grid_fields += _extract_hwpx_fields(output_template["path"])  # 누름틀
                 if grid_fields:
                     fill_mode = "hwpx_grid"
@@ -128,7 +132,7 @@ def run_form_assist(
                     log(f"양식 그리드: 표 {len(grid_doc.tables)}개, 채울 빈칸 {len(grid_fields)}개")
                 else:
                     fill_mode = "hwp_text"
-                    log("표/누름틀 빈칸 없음 — 텍스트 치환 경로")
+                    log("표/본문/누름틀 빈칸 없음 — 텍스트 치환 경로")
             except Exception as e:
                 log(f"HWPX 그리드 분석 실패 → 텍스트 경로: {e}")
                 fill_mode = "hwp_text"
@@ -235,21 +239,24 @@ def run_form_assist(
     if fill_mode == "hwpx_grid":
         try:
             from engine.hwpml.hwpx_grid import (
-                ID_RE, fill_hwpx_cells, relocate_below_markers,
+                ID_RE, BODY_ID_RE, fill_hwpx_cells, relocate_below_markers,
             )
             fill_data = _parse_fill_response(llm_response, blank_ids)
             log(f"그리드 채우기: {len(fill_data)}개 항목")
             if fill_data:
-                # 셀ID(그리드)와 누름틀명(정확일치)을 분리 — 누름틀은 라벨 퍼지매칭이
-                # 아닌 정확 이름 일치로만 채워 무관 셀 과충전을 막는다.
+                # 셀ID(그리드)/본문블랭크ID/누름틀명(정확일치) 3-way 분리 — 누름틀은
+                # 라벨 퍼지매칭이 아닌 정확 이름 일치로만 채워 무관 셀 과충전을 막는다.
                 grid_map = {k: v for k, v in fill_data.items() if ID_RE.match(k)}
-                field_map = {k: v for k, v in fill_data.items() if not ID_RE.match(k)}
+                body_map = {k: v for k, v in fill_data.items() if BODY_ID_RE.match(k)}
+                field_map = {k: v for k, v in fill_data.items()
+                             if not ID_RE.match(k) and not BODY_ID_RE.match(k)}
                 # '이하빈칸' 마커 자동 이동 (데이터가 마커 클리어보다 우선)
                 extra = relocate_below_markers(grid_doc, grid_map, log=log)
                 merged = {**extra, **grid_map}
                 out_path = os.path.join(save_dir, Path(output_template["name"]).stem + "_완성.hwpx")
                 filled = fill_hwpx_cells(output_template["path"], out_path, merged,
-                                         log=log, field_map=field_map or None)
+                                         log=log, field_map=field_map or None,
+                                         body_map=body_map or None)
                 if filled:
                     result["file"] = out_path
                     log(f"완성 파일: {out_path}")

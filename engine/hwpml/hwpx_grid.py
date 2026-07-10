@@ -25,6 +25,11 @@ from lxml import etree
 # 셀 주소 ID 형식
 ID_RE = re.compile(r"^s(\d+)_t(\d+)_r(\d+)_c(\d+)$")
 
+# 본문 밑줄 블랭크 ID 형식 ("성명: ______" 식 본문 빈칸)
+BODY_ID_RE = re.compile(r"^s(\d+)_u(\d+)$")
+# 밑줄런 = 블랭크 (ASCII/전각, 3자 이상 — 마크다운 강조 등 오인 방지)
+BLANK_RUN_RE = re.compile(r"[_＿]{3,}")
+
 # 이 크기 이하의 표는 "정보 표"로 보고 다음 표의 맥락 버퍼에 요약을 넣는다
 SMALL_TABLE_CELLS = 12
 
@@ -383,6 +388,115 @@ def extract_blank_fields(doc: HwpxDoc, include_filled: bool = False) -> list[dic
     return fields
 
 
+# ── 본문 밑줄 블랭크 ("성명: ______") ────────────────
+
+# body walker가 진입하지 않는 서브트리 — 표(셀ID 경로), 머리말/꼬리말·각주·바탕쪽
+# (장식 괘선이 흔한 영역, 본문 아님)
+_BODY_SKIP_TAGS = {"tbl", "header", "footer", "footNote", "endNote", "masterPage"}
+
+
+def _iter_body_t(root) -> Iterator:
+    """본문(표 밖) <t> 요소를 문서 순서로 yield.
+
+    추출(extract_body_blanks)과 채움(fill_hwpx_cells body_map)이 이 순회와
+    BLANK_RUN_RE를 공유한다 → 블랭크 카운터(ID) 일관성 보장.
+    - 표 셀 내부: 그리드 셀ID 경로 담당 (충돌 방지, 의도적 제외)
+    - 누름틀(fieldBegin~fieldEnd) 내부: 누름틀 정밀 채움 경로 담당 (이중 추출 방지)
+    - 머리말/꼬리말/각주/바탕쪽: 장식 괘선 영역, 제외
+    """
+    field_depth = 0
+
+    def walk(e):
+        nonlocal field_depth
+        for ch in e:
+            ln = _ln(ch)
+            if ln in _BODY_SKIP_TAGS:
+                continue
+            if ln in ("fieldBegin", "FIELDBEGIN"):
+                field_depth += 1
+            elif ln in ("fieldEnd", "FIELDEND"):
+                field_depth = max(0, field_depth - 1)
+            elif ln == "t":
+                if field_depth == 0:
+                    yield ch
+            else:
+                yield from walk(ch)
+
+    yield from walk(root)
+
+
+# 이 길이 이상의 밑줄런은 장식 구분선으로 간주 (서명란은 보통 6~14자)
+_SEPARATOR_RUN_LEN = 15
+
+
+def extract_body_blanks(path: str) -> list[dict]:
+    """본문 문단의 밑줄런 블랭크마다 라벨(앞뒤 문맥) 붙인 필드 생성.
+
+    ID = s{섹션}_u{순번} (섹션 내 문서 순서 카운터 — 채움과 동일 순회로 정합).
+    같은 문단(t)에 라벨 문맥이 없거나 구분선 길이(15자+)인 밑줄런은 장식으로
+    보고 방출하지 않는다(카운터는 증가 → 채움 쪽 카운터와 어긋나지 않음).
+    """
+    fields: list[dict] = []
+    with zipfile.ZipFile(path, "r") as zf:
+        for s_idx, sec_name in enumerate(_section_files(zf)):
+            try:
+                root = etree.fromstring(zf.read(sec_name))
+            except etree.XMLSyntaxError:
+                continue
+            counter = 0
+            for t in _iter_body_t(root):
+                text = t.text or ""
+                matches = list(BLANK_RUN_RE.finditer(text))
+                for i, m in enumerate(matches):
+                    # 앞뒤 문맥은 인접 블랭크 경계에서 자름 (라벨 혼동 방지)
+                    lo = matches[i - 1].end() if i > 0 else 0
+                    hi = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+                    prefix = text[lo:m.start()].strip()[-20:]
+                    suffix = text[m.end():hi].strip()[:12]
+                    blank_id = counter
+                    counter += 1
+                    # 장식 필터: 같은 문단에 문맥 전무(순수 괘선) 또는 구분선 길이
+                    if (not prefix and not suffix) or len(m.group()) >= _SEPARATOR_RUN_LEN:
+                        continue
+                    fields.append({
+                        "id": f"s{s_idx}_u{blank_id}",
+                        "section": s_idx,
+                        "label": f"{prefix} ___ {suffix}".strip(),
+                        "context": "",
+                        "current_value": "",
+                        "is_empty": True,
+                        "value_type": "body",
+                    })
+    return fields
+
+
+def _fill_body_blanks(root, s_idx: int, body_targets: dict) -> int:
+    """body_targets({순번: 값})의 밑줄런을 값으로 교체. 순회·regex는 추출과 동일."""
+    counter = 0
+    filled = 0
+    for t in _iter_body_t(root):
+        text = t.text or ""
+        matches = list(BLANK_RUN_RE.finditer(text))
+        if not matches:
+            continue
+        replaces = {}  # match idx → 값
+        for i, _m in enumerate(matches):
+            if counter in body_targets:
+                replaces[i] = str(body_targets[counter])
+            counter += 1
+        if replaces:
+            parts = []
+            pos = 0
+            for i, m in enumerate(matches):
+                parts.append(text[pos:m.start()])
+                parts.append(replaces.get(i, m.group()))
+                pos = m.end()
+            parts.append(text[pos:])
+            t.text = "".join(parts)
+            filled += len(replaces)
+    return filled
+
+
 # ── "이하빈칸" 마커 이동 ────────────────────────────
 
 # 공문서 관례: 마지막 데이터 행 바로 아래 행에 "이하빈칸"(또는 "이하여백") 표기.
@@ -514,19 +628,30 @@ def _fill_fields_precise(root, field_map: dict) -> int:
             continue
         for j in range(i + 1, len(order)):
             if _ln(order[j]) == "t":
-                order[j].text = str(field_map[name])
+                t = order[j]
+                value = str(field_map[name])
+                cur = t.text or ""
+                m = BLANK_RUN_RE.search(cur)
+                if m and cur.strip() != m.group():
+                    # 표시 텍스트에 라벨이 섞인 누름틀("성명: ______") —
+                    # 밑줄런만 치환해 접두 텍스트 보존
+                    t.text = cur[:m.start()] + value + cur[m.end():]
+                else:
+                    t.text = value
                 filled += 1
                 break
     return filled
 
 
 def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
-                    field_map: dict | None = None) -> int:
+                    field_map: dict | None = None,
+                    body_map: dict | None = None) -> int:
     """fill_map({셀ID: 값})의 값을 원본 서식 그대로 유지하며 주입.
 
     셀ID 형식: s{섹션}_t{표}_r{행}_c{열}. 값이 ""이면 셀 내용 삭제(클리어).
     field_map({누름틀명: 값})이 주어지면 누름틀도 정확 이름 일치로 채운다.
-    반환: 실제 주입된 셀(+누름틀) 수.
+    body_map({본문블랭크ID: 값}, s{섹션}_u{순번})은 본문 밑줄런을 값으로 교체.
+    반환: 실제 주입된 셀(+누름틀+본문블랭크) 수.
     """
     # 섹션별로 그룹핑
     by_section: dict[int, dict[tuple, str]] = {}
@@ -536,6 +661,18 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
             continue
         s, t, r, c = (int(g) for g in m.groups())
         by_section.setdefault(s, {})[(t, r, c)] = str(value)
+
+    body_by_section: dict[int, dict[int, str]] = {}
+    for key, value in (body_map or {}).items():
+        m = BODY_ID_RE.match(str(key).strip())
+        if not m:
+            continue
+        # 빈 값은 밑줄런 자체를 지워버림(양식 훼손) → 건너뜀.
+        # (그리드 셀의 ""=클리어 의미는 본문 블랭크에 적용하지 않는다.)
+        if not str(value).strip():
+            continue
+        s, u = (int(g) for g in m.groups())
+        body_by_section.setdefault(s, {})[u] = str(value)
 
     fields = dict(field_map) if field_map else {}
 
@@ -548,12 +685,17 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
                 if item.filename in sections:
                     s_idx = sections.index(item.filename)
                     targets = by_section.get(s_idx)
-                    if targets or fields:
+                    body_targets = body_by_section.get(s_idx)
+                    if targets or fields or body_targets:
                         try:
                             root = etree.fromstring(data)
                         except etree.XMLSyntaxError:
                             zf_out.writestr(item, data)
                             continue
+                        # 본문 블랭크를 먼저 — 그리드/누름틀 수정이 카운터에
+                        # 영향 주지 않도록 (본문 walker는 tbl을 안 보지만 순서 고정)
+                        if body_targets:
+                            filled += _fill_body_blanks(root, s_idx, body_targets)
                         if targets:
                             # 파싱과 같은 순회 순서로 표를 찾는다
                             for t_idx, (tbl, _ctx) in enumerate(_iter_tables(root)):
@@ -580,6 +722,6 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
                 zf_out.writestr(item, data)
 
     if log:
-        total = len(fill_map) + (len(fields) if fields else 0)
+        total = len(fill_map) + len(fields) + len(body_map or {})
         log(f"그리드 채움: {filled}/{total}개")
     return filled
