@@ -166,7 +166,34 @@ async def _ensure_hwp_connection(doc_index: int | None = None):
 
 @router.post("/api/chat/live")
 async def chat_live(req: LiveChatRequest):
-    from engine.chat_handler import handle_live_chat
+    from engine.chat_handler import handle_live_chat, detect_live_fill_intent
+
+    # ── 채우기 의도 → 그리드 fill-live 자동 라우팅 (gemma 배치→캐럿 라이브 기록) ──
+    # 검증된 라벨그리드+enum 경로. 실패(빈칸 없음·비hwpx 등) 시 액션 경로 폴백.
+    if req.app_type == "hwp" and detect_live_fill_intent(req.message):
+        from engine.routes.hwp import run_fill_live
+        if req.model and "/" in req.model:
+            provider, model_name = req.model.split("/", 1)
+        else:
+            provider, model_name = (req.model or "auto"), ""
+        fill = await run_fill_live(
+            instruction=req.message, provider=provider, model=model_name,
+        )
+        if fill.get("ok"):
+            filled = fill.get("filled", 0)
+            file = fill.get("file", "")
+            reply = f"빈칸 {filled}개를 문서에 채웠습니다."
+            if fill.get("skipped"):
+                reply += f" ({len(fill['skipped'])}개는 확인이 필요해 건너뜀)"
+            if file:
+                from pathlib import Path as _P
+                reply += f"\n완성 파일: `{_P(file).name}`"
+            return {
+                "reply": reply, "actions": None, "results": None,
+                "summary": f"{filled}개 채움", "fill_live": True,
+                "file": file, "plan": fill.get("plan"), "logs": fill.get("logs"),
+            }
+        # 폴백: 채울 빈칸이 없거나 그리드 경로 불가 → 기존 액션 경로
 
     if req.app_type == "hwp":
         await _ensure_hwp_connection(req.doc_index)

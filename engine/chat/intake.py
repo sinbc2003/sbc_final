@@ -56,6 +56,24 @@ def detect_form_intent(message: str, file_paths: list[str]) -> bool:
 
 
 
+# 라이브 채우기 전용 신호 — 일반 편집(바꿔/만들어/삭제 등)은 액션 경로가 담당하므로
+# '빈칸을 채운다'는 명시적 표현만 잡는다 (오라우팅 시 fill 실패 → 액션 경로 폴백).
+_LIVE_FILL_KEYWORDS = ["채워", "채우", "빈칸", "기입해"]
+
+
+def detect_live_fill_intent(message: str) -> bool:
+    """라이브 채팅 메시지가 '열린 문서의 빈칸 채우기' 의도인지 판단.
+
+    True면 그리드 fill-live 경로(gemma 배치→캐럿 라이브 기록)로 라우팅.
+    감지 실패/채움 실패 시 호출 측이 기존 액션 경로로 폴백한다.
+    """
+    msg = (message or "").lower()
+    hit = any(kw in msg for kw in _LIVE_FILL_KEYWORDS)
+    if hit:
+        _log.info("라이브 채우기 의도 감지 → fill-live 라우팅")
+    return hit
+
+
 def extract_file_paths(message: str) -> list[str]:
     """채팅 메시지에서 '첨부된 파일 경로:' 블록의 파일 경로 추출."""
     paths = []
