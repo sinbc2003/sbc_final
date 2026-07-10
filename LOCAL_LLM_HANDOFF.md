@@ -656,6 +656,9 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 1. **데이터 손실**: `_is_placeholder`가 부분문자열('기입' 등)로 실데이터 셀을 자리표시자 오판 → 덮어쓰기. **수정**: 전체일치 단어(`_PLACEHOLDER_WORDS`)만 + 글자셋 `○◯〇_＿`(체크박스 □■ 제외)만 + len≤12. 빈 셀은 is_empty로 이미 잡히므로 보수적 판정이 안전. 단위테스트 14케이스(짧은 서술 '학생이 기입하였음'·'■□' 보호) 통과.
 2·4. **.hwp COM 우회/행**: `.hwp`+스캔실패 시 hwp_text→`form_fill._fill_hwp`(win32com PutFieldText)가 전용 COM풀(`deps._com_pool`)을 우회 실행 + find/replace 키가 누름틀명과 불일치. **수정**: `hwp_text`+`.hwp`는 독립 elif로 **자동 채우기 생략(텍스트만)**. 정상 .hwp 채움은 `hwp_com`(셀ID 기반 `fill_hwp_by_cells`, COM풀) 담당. → form_assist에서 `.hwp`가 `_fill_hwp`에 도달 불가.
 3. **.hwpx 비-표 양식 회귀**: 표 빈칸 없는 .hwpx(누름틀·본문밑줄)가 미충전. **수정**: `_extract_hwpx_fields`로 누름틀(id=필드명)을 grid_fields에 포함 + hwpx_grid 주입을 `form_fill.execute`(그리드ID→`fill_hwpx_cells`+마커, 누름틀명→`_fill_hwpx_section`, 전부 COM-free)로 라우팅. (본문 밑줄 `______` 블랭크는 여전히 미지원 — 문서화된 한계, 표/누름틀 없으면 hwp_text 안내.)
-- **재검증**: 4결함 RESOLVED·새 확정결함 0. **PLAUSIBLE 1건**(감시): .hwpx+누름틀에서 `_fill_hwpx_section`의 기존 라벨 퍼지매칭(`key in label`)이 인접 빈셀 과충전 소지 — 순수 표 양식(bench 경로)은 legacy 스킵되어 무관, form_fill 기존 코드.
-- 회귀 재확인: 수정 후 벤치 495/495·gemma E2E 4/4 재현.
-- **HTTP E2E 미검증**·본문밑줄 블랭크·누름틀 퍼지매칭이 다음 세션 후속 후보.
+- **재검증**: 4결함 RESOLVED·새 확정결함 0.
+
+### 추가 하드닝 (2026-07-10, 같은 세션)
+- **HTTP E2E ✅**: 엔진 서버(uvicorn :8407, `--reload` 없이 단일프로세스) 기동 → `POST /api/form-assist` 멀티파트 업로드(현장체험학습 5빈칸, provider=local) → **라우트가 .hwpx COM 스캔 안 함 확인** + gemma 5빈칸 정확 채움 + `체험학습양식_완성.hwpx` 생성. 제품 경로(업로드→run_on_com→스레드풀→그리드→form_fill→응답) 전체 실동작. (scratchpad `test_http_e2e.py`)
+- **누름틀 과충전(리뷰 PLAUSIBLE) → CONFIRMED 후 수정**: `_fill_hwpx_section`의 라벨 퍼지매칭이 누름틀 값을 **인접 라벨-매칭 빈셀에도 채움**(합성XML 재현: filled=2, 무관셀 오염). **수정**: `hwpx_grid._fill_fields_precise`(fieldBegin name==키 정확일치 → 첫 `<t>`만) 신설 + `fill_hwpx_cells(field_map=)` 옵션 추가. form_assist 그리드 주입을 `form_fill.execute`(퍼지) → `fill_hwpx_cells`(그리드ID) + `field_map`(누름틀 정밀) 분리로 되돌림. **검증**: 과충전 방지 단위테스트(누름틀만 1개, 무관셀 무손상), 누름틀 주입 hwpx로 extract→정밀채움 2/2, 벤치 495/495·gemma E2E 4/4 회귀.
+- **다음 후보**: ①§16-2 계산 안전망(파생 산수 코드 재계산) — **범용 계산열 감지가 난제**(채용표 `합계=서류+평균` 등 폼별 관계 일반화 불가, 오검출 시 데이터손상 → 폼 힌트/폼유형별 핸들러 방식 권장, 위험한 범용 recompute 지양) ②본문밑줄 `___` 블랭크(표/누름틀 아님, 미지원) ③LoRA 증류.

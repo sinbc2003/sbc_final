@@ -234,24 +234,27 @@ def run_form_assist(
 
     if fill_mode == "hwpx_grid":
         try:
+            from engine.hwpml.hwpx_grid import (
+                ID_RE, fill_hwpx_cells, relocate_below_markers,
+            )
             fill_data = _parse_fill_response(llm_response, blank_ids)
             log(f"그리드 채우기: {len(fill_data)}개 항목")
             if fill_data:
-                # form_fill이 그리드 셀ID(fill_hwpx_cells+마커이동)와 누름틀(필드명)을
-                # 함께, COM 없이 처리한다.
-                from nodes.form_fill.main import execute as fill_fn
-                output_name = Path(output_template["name"]).stem + "_완성"
-                fill_result = fill_fn(
-                    inputs={
-                        "양식파일": output_template["path"],
-                        "채울내용": json.dumps(fill_data, ensure_ascii=False),
-                    },
-                    params={"output_name": output_name},
-                    context={"temp_dir": save_dir, "progress": lambda x: None, "log": log},
-                )
-                result["file"] = fill_result.get("파일")
-                if result["file"]:
-                    log(f"완성 파일: {result['file']}")
+                # 셀ID(그리드)와 누름틀명(정확일치)을 분리 — 누름틀은 라벨 퍼지매칭이
+                # 아닌 정확 이름 일치로만 채워 무관 셀 과충전을 막는다.
+                grid_map = {k: v for k, v in fill_data.items() if ID_RE.match(k)}
+                field_map = {k: v for k, v in fill_data.items() if not ID_RE.match(k)}
+                # '이하빈칸' 마커 자동 이동 (데이터가 마커 클리어보다 우선)
+                extra = relocate_below_markers(grid_doc, grid_map, log=log)
+                merged = {**extra, **grid_map}
+                out_path = os.path.join(save_dir, Path(output_template["name"]).stem + "_완성.hwpx")
+                filled = fill_hwpx_cells(output_template["path"], out_path, merged,
+                                         log=log, field_map=field_map or None)
+                if filled:
+                    result["file"] = out_path
+                    log(f"완성 파일: {out_path}")
+                else:
+                    log("주입된 셀 없음 — 셀ID 매칭 실패")
             else:
                 log("LLM이 채울 항목을 반환하지 않았습니다")
         except Exception as e:

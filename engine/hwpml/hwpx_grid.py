@@ -498,11 +498,35 @@ def _set_cell_text(tc, value: str) -> bool:
     return True
 
 
-def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None) -> int:
+def _fill_fields_precise(root, field_map: dict) -> int:
+    """누름틀(fieldBegin) 값을 '정확한 이름 일치'로만 채운다.
+
+    form_fill._fill_hwpx_section의 라벨 퍼지매칭(인접 라벨=키 부분일치)과 달리
+    fieldBegin name == 키일 때 그 필드의 첫 <t>에만 쓴다 → 무관한 빈 셀 과충전 없음.
+    """
+    order = list(root.iter())
+    filled = 0
+    for i, elem in enumerate(order):
+        if _ln(elem) not in ("fieldBegin", "FIELDBEGIN"):
+            continue
+        name = elem.get("name") or elem.get("Name") or ""
+        if name not in field_map:
+            continue
+        for j in range(i + 1, len(order)):
+            if _ln(order[j]) == "t":
+                order[j].text = str(field_map[name])
+                filled += 1
+                break
+    return filled
+
+
+def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
+                    field_map: dict | None = None) -> int:
     """fill_map({셀ID: 값})의 값을 원본 서식 그대로 유지하며 주입.
 
     셀ID 형식: s{섹션}_t{표}_r{행}_c{열}. 값이 ""이면 셀 내용 삭제(클리어).
-    반환: 실제 주입된 셀 수.
+    field_map({누름틀명: 값})이 주어지면 누름틀도 정확 이름 일치로 채운다.
+    반환: 실제 주입된 셀(+누름틀) 수.
     """
     # 섹션별로 그룹핑
     by_section: dict[int, dict[tuple, str]] = {}
@@ -513,6 +537,8 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None) -> i
         s, t, r, c = (int(g) for g in m.groups())
         by_section.setdefault(s, {})[(t, r, c)] = str(value)
 
+    fields = dict(field_map) if field_map else {}
+
     filled = 0
     with zipfile.ZipFile(src_path, "r") as zf_in:
         sections = _section_files(zf_in)
@@ -522,34 +548,38 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None) -> i
                 if item.filename in sections:
                     s_idx = sections.index(item.filename)
                     targets = by_section.get(s_idx)
-                    if targets:
+                    if targets or fields:
                         try:
                             root = etree.fromstring(data)
                         except etree.XMLSyntaxError:
                             zf_out.writestr(item, data)
                             continue
-                        # 파싱과 같은 순회 순서로 표를 찾는다
-                        for t_idx, (tbl, _ctx) in enumerate(_iter_tables(root)):
-                            wanted = {(r, c): v for (t, r, c), v in targets.items() if t == t_idx}
-                            if not wanted:
-                                continue
-                            for tr in (ch for ch in tbl if _ln(ch) == "tr"):
-                                for tc in (ch for ch in tr if _ln(ch) == "tc"):
-                                    addr = None
-                                    for ch in tc:
-                                        if _ln(ch) == "cellAddr":
-                                            addr = (int(ch.get("rowAddr") or -1),
-                                                    int(ch.get("colAddr") or -1))
-                                            break
-                                    if addr in wanted:
-                                        if _set_cell_text(tc, wanted[addr]):
-                                            filled += 1
-                                        elif log:
-                                            log(f"셀 구조 인식 실패: t{t_idx} {addr}")
+                        if targets:
+                            # 파싱과 같은 순회 순서로 표를 찾는다
+                            for t_idx, (tbl, _ctx) in enumerate(_iter_tables(root)):
+                                wanted = {(r, c): v for (t, r, c), v in targets.items() if t == t_idx}
+                                if not wanted:
+                                    continue
+                                for tr in (ch for ch in tbl if _ln(ch) == "tr"):
+                                    for tc in (ch for ch in tr if _ln(ch) == "tc"):
+                                        addr = None
+                                        for ch in tc:
+                                            if _ln(ch) == "cellAddr":
+                                                addr = (int(ch.get("rowAddr") or -1),
+                                                        int(ch.get("colAddr") or -1))
+                                                break
+                                        if addr in wanted:
+                                            if _set_cell_text(tc, wanted[addr]):
+                                                filled += 1
+                                            elif log:
+                                                log(f"셀 구조 인식 실패: t{t_idx} {addr}")
+                        if fields:
+                            filled += _fill_fields_precise(root, fields)
                         data = etree.tostring(root, xml_declaration=True,
                                               encoding="UTF-8", standalone=True)
                 zf_out.writestr(item, data)
 
     if log:
-        log(f"그리드 채움: {filled}/{len(fill_map)}개")
+        total = len(fill_map) + (len(fields) if fields else 0)
+        log(f"그리드 채움: {filled}/{total}개")
     return filled
