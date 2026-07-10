@@ -663,10 +663,19 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **리팩터 회귀 1건 E2E가 적발·수정**: 스트림 준비 로직 함수화 과정에서 액션 실행부의 `live` 미정의(NameError) → `deps.get_live()`로 수정.
 - **E2E 3/3 (프론트 실경로 /stream, 로컬 gemma)**: ①"…확인서 빈칸 채워줘"→fill-live 3/3 채움 ②"제목을 …로 바꿔줘"→envelope 강제→`replace_paragraph` 실행→문서 실변경 확인 ③"제목이 뭐야?"→액션 0·정답(직전 편집된 새 제목을 읽어 답변). envelope 단위 4케이스.
 
+### excel/ppt envelope 확장 + 리뷰 잔여 4건 해소 (2026-07-11 ✅)
+- **envelope 3앱 확장**: `LIVE_EXCEL_ACTIONS`(17종)·`LIVE_PPT_ACTIONS`(9종) 추가, `build_envelope_note(app)`가 앱별 few-shot 예시 포함 + **본문 스킬의 ```json 배열 지시를 명시적으로 무시**하라는 우선 규칙(소형모델 상충지시 혼란 방지). **Excel 스트림 E2E(로컬 gemma)**: "성명/점수 헤더+2명 넣어줘" → envelope 강제 5액션(set_cells×2·format_range·border·auto_fit — 서식은 스킬 규칙 따라 자발적) 5/5 실행, 실제 셀 검증 3/3. **PPT는 스키마 단위 확인만, E2E 미실시.**
+- **리뷰 잔여 4건 해소** (`grid_live.fill_grid_live`):
+  - **per-write 재검증(TOCTOU+순서 방어)**: 기록 직전 `SelectAll→get_selected_text(keep_select=True)`로 셀 현재 내용을 스냅샷 기대값과 대조 — 다르면(사용자 편집·정렬 밀림) 건너뜀. 빈셀끼리 어긋나는 이론적 reorder도 "쓸 셀은 스냅샷과 일치해야 기록"으로 봉쇄.
+  - **라이브 경로 마커 이동**: `relocate_below_markers`를 fill_grid_live에 통합(파일 경로와 동일 규칙), 클리어("")는 `SelectAll→Delete`.
+  - filled 카운트 정직성: set_pos/is_cell/재검증/field_exist/SaveAs 확인 후에만 카운트(기수정 사항 재확인).
+- **검증**: 라이브 마커 테스트(새양식: 마커 첫행→데이터 18셀 라이브 채움→마커 r2 클리어+r4 재배치) **전체 1126/1126 완벽**, per-write 검증이 정상 기록 무방해. Excel E2E 5/5·3/3.
+- 발견 기록: fill_data에 마커 문자를 데이터로 포함시키면 relocate가 그 아래에 마커를 추가 배치(규칙적 동작) — 호출자는 마커 행을 데이터로 넣지 말 것(gemma 경로는 해당 없음 — 빈칸 enum에 마커 셀이 없음).
+
 ### 남은 것 / 다음 후보
-- skills/hwp.md 본문을 gemma 친화로 다이어트(액션 수 축소·few-shot 재구성) — envelope+GBNF가 형식은 잡아주므로 우선순위 낮아짐. excel/ppt 액션 카탈로그의 envelope 확장.
-- 활성 문서가 **저장 안 된 수정 상태**면 파일 그리드와 화면이 다름 → 검산+대량불일치 가드가 막아주지만, 저장 유도/자동 스냅샷 개선 여지.
-- 본문 밑줄 블랭크 라이브 기록(현재 파일 경로만), 중첩 표 문서, plan에 마커 이동 통합, §18 리뷰 잔여 4건 재검증, HWPML block_id 편집 실행 신뢰성(§5 잔여 — 편집은 커서 스캔 CVD일 때 안정).
+- skills/*.md 본문 다이어트(gemma 친화 재구성) — envelope+GBNF가 형식을 잡아주므로 우선순위 낮음. **PPT 라이브 E2E 미실시**.
+- 활성 문서가 저장 안 된 수정 상태면 per-write 재검증이 해당 셀을 건너뜀(안전) — 저장 유도 UX 개선 여지.
+- 본문 밑줄 블랭크 라이브 기록(현재 파일 경로만), 중첩 표 문서, HWPML block_id 편집 실행 신뢰성(§5 잔여), LoRA 증류(`GEMMA_LORA_GUIDE.md`).
 
 ---
 

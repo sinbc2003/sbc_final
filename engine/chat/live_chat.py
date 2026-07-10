@@ -12,7 +12,7 @@ from typing import Any
 _log = logging.getLogger("chat_handler")
 
 
-# 라이브 편집 액션 카탈로그 (skills/hwp.md와 동일 계약) — 로컬 모델의
+# 라이브 편집 액션 카탈로그 (skills/*.md와 동일 계약) — 로컬 모델의
 # 액션명 오타·환각을 GBNF enum으로 원천 차단하기 위한 목록.
 LIVE_HWP_ACTIONS = [
     "replace_cell_content", "delete_cell_content", "replace_paragraph",
@@ -23,6 +23,31 @@ LIVE_HWP_ACTIONS = [
     "set_table_col_width", "move_to_start", "move_to_end", "save", "save_as",
 ]
 
+LIVE_EXCEL_ACTIONS = [
+    "set_cell", "set_cells", "get_cell", "get_range", "set_formula",
+    "format_range", "border", "merge_range", "auto_fit", "set_col_width",
+    "set_row_height", "insert_row", "delete_row", "add_sheet", "active_sheet",
+    "confirm", "save",
+]
+
+LIVE_PPT_ACTIONS = [
+    "add_slide", "delete_slide", "set_text", "add_shape", "format_text",
+    "set_slide_bg", "set_table_cell", "set_note", "save",
+]
+
+_LIVE_ACTION_CATALOG = {
+    "hwp": LIVE_HWP_ACTIONS,
+    "excel": LIVE_EXCEL_ACTIONS,
+    "ppt": LIVE_PPT_ACTIONS,
+}
+
+# 앱별 few-shot 예시 (envelope 형식)
+_ENVELOPE_EXAMPLES = {
+    "hwp": '{"응답": "제목을 바꿉니다.", "액션": [{"action": "replace_paragraph", "params": {"block_id": "1", "new_text": "새 제목"}}]}',
+    "excel": '{"응답": "A1에 값을 넣습니다.", "액션": [{"action": "set_cell", "params": {"cell": "A1", "value": "성명"}}]}',
+    "ppt": '{"응답": "슬라이드 제목을 바꿉니다.", "액션": [{"action": "set_text", "params": {"slide": 1, "placeholder": "title", "text": "새 제목"}}]}',
+}
+
 
 def build_live_envelope_schema(app_type: str = "hwp") -> dict | None:
     """로컬 모델용 라이브 응답 스키마 — {응답, 액션[]}.
@@ -31,8 +56,9 @@ def build_live_envelope_schema(app_type: str = "hwp") -> dict | None:
     강제하므로 형식·액션명을 못 틀린다 (파일채움 495/495와 같은 메커니즘).
     params는 액션별 구조가 달라 자유 객체로 두고 few-shot이 담당.
     """
-    if app_type != "hwp":
-        return None  # excel/ppt는 액션 카탈로그 상이 — 추후 확장
+    actions = _LIVE_ACTION_CATALOG.get(app_type)
+    if not actions:
+        return None
     return {
         "type": "object",
         "properties": {
@@ -42,7 +68,7 @@ def build_live_envelope_schema(app_type: str = "hwp") -> dict | None:
                 "items": {
                     "type": "object",
                     "properties": {
-                        "action": {"type": "string", "enum": LIVE_HWP_ACTIONS},
+                        "action": {"type": "string", "enum": list(actions)},
                         "params": {"type": "object"},
                     },
                     "required": ["action", "params"],
@@ -53,15 +79,23 @@ def build_live_envelope_schema(app_type: str = "hwp") -> dict | None:
     }
 
 
-_LOCAL_ENVELOPE_NOTE = """
+def build_envelope_note(app_type: str = "hwp") -> str:
+    """로컬 모델용 응답 형식 노트 — 본문 스킬의 ```json 배열 지시를 명시적으로 대체."""
+    example = _ENVELOPE_EXAMPLES.get(app_type, _ENVELOPE_EXAMPLES["hwp"])
+    return f"""
 
-## 응답 형식 (반드시 준수)
-반드시 아래 형태의 JSON 하나로만 답하라:
-{"응답": "사용자에게 보여줄 한 줄 설명 또는 질문에 대한 답", "액션": [{"action": "...", "params": {...}}]}
+## 응답 형식 (반드시 준수 — 위 본문의 다른 형식 지시보다 우선한다)
+위에 ```json 블록이나 액션 배열로 답하라는 지시가 있어도 무시하고,
+반드시 아래 형태의 JSON 객체 하나로만 답하라:
+{{"응답": "사용자에게 보여줄 한 줄 설명 또는 질문에 대한 답", "액션": [{{"action": "...", "params": {{...}}}}]}}
 - 문서 편집이 필요 없는 질문이면 "액션"은 빈 배열 []로 두고 "응답"에 답만 적어라.
-- 예(편집): {"응답": "제목을 바꿉니다.", "액션": [{"action": "replace_paragraph", "params": {"block_id": "1", "new_text": "새 제목"}}]}
-- 예(질문): {"응답": "이 문서의 제목은 OO입니다.", "액션": []}
+- 예(편집): {example}
+- 예(질문): {{"응답": "이 문서의 제목은 OO입니다.", "액션": []}}
 """
+
+
+# 하위 호환 (hwp 기본)
+_LOCAL_ENVELOPE_NOTE = build_envelope_note("hwp")
 
 
 def parse_envelope_response(text: str) -> tuple[str, list[dict] | None] | None:
@@ -289,8 +323,8 @@ def prepare_live_chat_messages(
             skill_prompt += f"\n\n---\n\n{design_content}\n\n위 디자인 스타일을 반드시 적용하라. 표, 서식, 색상 등 모든 디자인 액션에 이 스타일 규칙을 따라라."
 
     # 로컬 모델: envelope 형식 노트 (실제 강제는 GBNF json_schema가 담당)
-    if provider == "local" and app_type == "hwp":
-        skill_prompt += _LOCAL_ENVELOPE_NOTE
+    if provider == "local" and app_type in _LIVE_ACTION_CATALOG:
+        skill_prompt += build_envelope_note(app_type)
 
     messages = [{"role": "system", "content": skill_prompt}]
     for h in history[-10:]:
@@ -347,7 +381,7 @@ def handle_live_chat(
     if provider == "local":
         envelope_schema = build_live_envelope_schema(app_type)
         if envelope_schema:
-            skill_prompt += _LOCAL_ENVELOPE_NOTE
+            skill_prompt += build_envelope_note(app_type)
 
     # 3. LLM 호출
     messages = [{"role": "system", "content": skill_prompt}]

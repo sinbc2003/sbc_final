@@ -136,16 +136,25 @@ def fill_grid_live(form_path: str, fill_data: dict, elements: list[dict],
 
     # ── 그리드 셀 → 정렬 좌표로 라이브 기록 ──
     if grid_map:
+        from engine.hwpml.hwpx_grid import relocate_below_markers
         doc = parse_hwpx(form_path)
+        # '이하빈칸' 마커를 채워진 마지막 행 아래로 이동 (파일 경로와 동일 규칙)
+        try:
+            extra = relocate_below_markers(doc, grid_map, log=_log)
+            grid_map = {**extra, **grid_map}
+        except Exception as e:
+            _log(f"마커 이동 건너뜀: {e}")
         try:
             mapping, stats = align_grid_to_scan(doc, elements, log=_log)
         except ValueError as e:
             _log(str(e))
             mapping, stats = {}, {"error": str(e)}
+        # 기록 직전 재검증용 스냅샷 텍스트 (스캔↔기록 사이 사용자 편집 방어)
+        expected = {f"{g.key}_r{r}_c{c}": _norm(cell.text)
+                    for g in doc.tables for (r, c), cell in g.cells.items()}
         for cid, value in grid_map.items():
             val = str(value).strip()
-            if not val:
-                continue
+            clear = not val  # 마커 이동의 원위치 클리어("")
             pos = mapping.get(cid)
             if not pos:
                 skipped.append(cid)
@@ -157,14 +166,26 @@ def fill_grid_live(form_path: str, fill_data: dict, elements: list[dict],
                     skipped.append(cid)
                     _log(f"  셀 {cid}: set_pos 실패 — 건너뜀")
                     continue
-                if hwp.is_cell():
-                    hwp.SelectAll()
-                    hwp.insert_text(val)
-                    filled += 1
-                    _log(f"  셀 {cid} → {val[:40]}")
-                else:
+                if not hwp.is_cell():
                     skipped.append(cid)
                     _log(f"  셀 {cid}: is_cell 아님 — 건너뜀")
+                    continue
+                hwp.SelectAll()
+                # 기록 직전 셀 내용 재검증 — 스캔 시점과 다르면(사용자 편집 등)
+                # 오기록 위험이므로 건너뜀 (TOCTOU 방어)
+                cur = _norm(hwp.get_selected_text(keep_select=True) or "")
+                if cur != expected.get(cid, ""):
+                    hwp.Cancel()
+                    skipped.append(cid)
+                    _log(f"  셀 {cid}: 내용 변경 감지('{cur[:16]}') — 건너뜀")
+                    continue
+                if clear:
+                    hwp.Delete()
+                else:
+                    hwp.insert_text(val)
+                filled += 1
+                if not clear:
+                    _log(f"  셀 {cid} → {val[:40]}")
                 time.sleep(0.03)
             except Exception as e:
                 skipped.append(cid)
