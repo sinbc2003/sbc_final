@@ -209,11 +209,52 @@ def fill_grid_live(form_path: str, fill_data: dict, elements: list[dict],
             skipped.append(str(name))
             _log(f"  누름틀 {name} 실패: {e}")
 
-    # ── 본문 블랭크: 라이브 미지원 (파일 경로 사용 권장) ──
-    for bid in body_map:
-        skipped.append(bid)
+    # ── 본문 블랭크 → find 순회로 라이브 교체 ──
+    # 문서 순서의 밑줄런 목록(장식 포함, XML)과 COM find(Forward)가 같은
+    # 순서로 만난다는 원리(셀 정렬과 동일). 표 안 히트는 is_cell로 스킵하고,
+    # 비대상 본문 런은 동일 문자열 재삽입으로 통과(캐럿 전진, 내용 불변).
     if body_map:
-        _log(f"본문 블랭크 {len(body_map)}개는 라이브 미지원 — 파일 채움을 사용하세요")
+        from engine.hwpml.hwpx_grid import body_blank_runs
+        runs = body_blank_runs(form_path)
+        targets = {bid for bid in body_map}
+        try:
+            hwp.MoveDocBegin()
+            for bid, run_str in runs:
+                # 이 런을 문서에서 찾기 — 표 안 동일 문자열은 스킵
+                found_body = False
+                for _guard in range(50):
+                    if not hwp.find(run_str, "Forward"):
+                        break
+                    if hwp.is_cell():
+                        # 표 안 히트: 동일 문자열 재삽입으로 캐럿만 전진
+                        hwp.insert_text(run_str)
+                        continue
+                    found_body = True
+                    break
+                if not found_body:
+                    # 문서에서 못 찾음(사용자 편집 등) — 순서 신뢰 불가, 잔여 중단
+                    _log(f"본문 밑줄 '{run_str[:8]}…' 미발견 — 잔여 본문 블랭크 중단")
+                    for b in targets:
+                        if str(body_map.get(b, "")).strip():
+                            skipped.append(b)
+                    break
+                if bid in targets:
+                    val = str(body_map[bid]).strip()
+                    if val:
+                        hwp.insert_text(val)  # find가 선택한 런을 값으로 교체
+                        filled += 1
+                        _log(f"  본문 {bid} → {val[:40]}")
+                    else:
+                        hwp.insert_text(run_str)  # 빈 값 → 밑줄 보존
+                    targets.discard(bid)
+                else:
+                    hwp.insert_text(run_str)  # 비대상 → 통과
+                if not targets:
+                    break
+        except Exception as e:
+            _log(f"본문 블랭크 라이브 기록 실패: {e}")
+            for b in targets:
+                skipped.append(b)
 
     _log(f"라이브 기록: {filled}개 완료" + (f", {len(skipped)}개 건너뜀" if skipped else ""))
 

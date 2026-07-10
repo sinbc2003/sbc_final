@@ -672,10 +672,15 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **검증**: 라이브 마커 테스트(새양식: 마커 첫행→데이터 18셀 라이브 채움→마커 r2 클리어+r4 재배치) **전체 1126/1126 완벽**, per-write 검증이 정상 기록 무방해. Excel E2E 5/5·3/3.
 - 발견 기록: fill_data에 마커 문자를 데이터로 포함시키면 relocate가 그 아래에 마커를 추가 배치(규칙적 동작) — 호출자는 마커 행을 데이터로 넣지 말 것(gemma 경로는 해당 없음 — 빈칸 enum에 마커 셀이 없음).
 
+### PPT 라이브 E2E + 본문 블랭크 라이브 기록 (2026-07-11 ✅ — 라이브 채움 전 유형 커버)
+- **PPT envelope E2E**: PowerPoint 연결 → 스트림 채팅 "슬라이드 추가+제목·내용" → gemma가 envelope 강제 하 `add_slide`(title/content 포함) 생성·실행 → 슬라이드 내용 2/2 검증. **3앱(hwp/excel/ppt) envelope 라이브 검증 완료.**
+- **본문 밑줄 블랭크 라이브 기록**: `hwpx_grid`에 `_iter_body_blank_matches`(추출·라이브가 공유하는 단일 순회 — 카운터 정합 원천 보장) + `body_blank_runs`(장식 포함 문서순 전체 목록), `extract_body_blanks`에 `blank_run` 필드. `fill_grid_live`가 body_map을 **find 순회로 라이브 교체**: `hwp.find(런문자열)`→선택 상태→`insert_text`(교체). 표 안 동일 밑줄은 `is_cell`로 스킵(동일 문자열 재삽입으로 캐럿 전진), 비대상 본문 런도 재삽입 통과, find 미발견(사용자 편집) 시 잔여 중단(fail-safe). **결정적 검증 5/5**: 셀+본문 혼합 라이브 기록, 표 안 밑줄·비대상(u1)·장식 구분선 전부 무손상.
+- 이로써 채팅 "빈칸 채워줘" 라이브 채움이 **표 셀 + 누름틀 + 본문 밑줄** 전 유형을 커버.
+
 ### 남은 것 / 다음 후보
-- skills/*.md 본문 다이어트(gemma 친화 재구성) — envelope+GBNF가 형식을 잡아주므로 우선순위 낮음. **PPT 라이브 E2E 미실시**.
-- 활성 문서가 저장 안 된 수정 상태면 per-write 재검증이 해당 셀을 건너뜀(안전) — 저장 유도 UX 개선 여지.
-- 본문 밑줄 블랭크 라이브 기록(현재 파일 경로만), 중첩 표 문서, HWPML block_id 편집 실행 신뢰성(§5 잔여), LoRA 증류(`GEMMA_LORA_GUIDE.md`).
+- skills/*.md 본문 다이어트(gemma 친화 재구성) — envelope+GBNF가 형식을 잡아주므로 우선순위 낮음.
+- find 순회의 전제: 한/글 find(Forward)가 머리말/꼬리말을 본문 흐름과 섞지 않는다 — 현재 테스트 범위에선 문제 없음, 머리말에 밑줄런 있는 실문서로 추가 확인 여지.
+- 중첩 표 문서 라이브(정렬 거부, 파일 경로 사용), HWPML block_id 편집 실행 신뢰성(§5 잔여), LoRA 증류(`GEMMA_LORA_GUIDE.md`).
 
 ---
 

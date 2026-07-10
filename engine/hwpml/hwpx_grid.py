@@ -429,14 +429,12 @@ def _iter_body_t(root) -> Iterator:
 _SEPARATOR_RUN_LEN = 15
 
 
-def extract_body_blanks(path: str) -> list[dict]:
-    """본문 문단의 밑줄런 블랭크마다 라벨(앞뒤 문맥) 붙인 필드 생성.
+def _iter_body_blank_matches(path: str):
+    """본문 밑줄런 매치를 문서 순서로 yield — (섹션, 순번, 런 문자열, prefix, suffix, 장식여부).
 
-    ID = s{섹션}_u{순번} (섹션 내 문서 순서 카운터 — 채움과 동일 순회로 정합).
-    같은 문단(t)에 라벨 문맥이 없거나 구분선 길이(15자+)인 밑줄런은 장식으로
-    보고 방출하지 않는다(카운터는 증가 → 채움 쪽 카운터와 어긋나지 않음).
+    extract_body_blanks(방출 판정)와 라이브 find 순회(body_blank_runs)가 이
+    단일 순회를 공유한다 → 카운터(ID)·장식 판정 정합 보장.
     """
-    fields: list[dict] = []
     with zipfile.ZipFile(path, "r") as zf:
         for s_idx, sec_name in enumerate(_section_files(zf)):
             try:
@@ -453,21 +451,45 @@ def extract_body_blanks(path: str) -> list[dict]:
                     hi = matches[i + 1].start() if i + 1 < len(matches) else len(text)
                     prefix = text[lo:m.start()].strip()[-20:]
                     suffix = text[m.end():hi].strip()[:12]
-                    blank_id = counter
+                    decorative = ((not prefix and not suffix)
+                                  or len(m.group()) >= _SEPARATOR_RUN_LEN)
+                    yield s_idx, counter, m.group(), prefix, suffix, decorative
                     counter += 1
-                    # 장식 필터: 같은 문단에 문맥 전무(순수 괘선) 또는 구분선 길이
-                    if (not prefix and not suffix) or len(m.group()) >= _SEPARATOR_RUN_LEN:
-                        continue
-                    fields.append({
-                        "id": f"s{s_idx}_u{blank_id}",
-                        "section": s_idx,
-                        "label": f"{prefix} ___ {suffix}".strip(),
-                        "context": "",
-                        "current_value": "",
-                        "is_empty": True,
-                        "value_type": "body",
-                    })
+
+
+def extract_body_blanks(path: str) -> list[dict]:
+    """본문 문단의 밑줄런 블랭크마다 라벨(앞뒤 문맥) 붙인 필드 생성.
+
+    ID = s{섹션}_u{순번} (섹션 내 문서 순서 카운터 — 채움과 동일 순회로 정합).
+    같은 문단(t)에 라벨 문맥이 없거나 구분선 길이(15자+)인 밑줄런은 장식으로
+    보고 방출하지 않는다(카운터는 증가 → 채움 쪽 카운터와 어긋나지 않음).
+    """
+    fields: list[dict] = []
+    for s_idx, counter, run, prefix, suffix, decorative in _iter_body_blank_matches(path):
+        if decorative:
+            continue
+        fields.append({
+            "id": f"s{s_idx}_u{counter}",
+            "section": s_idx,
+            "label": f"{prefix} ___ {suffix}".strip(),
+            "context": "",
+            "current_value": "",
+            "is_empty": True,
+            "value_type": "body",
+            "blank_run": run,
+        })
     return fields
+
+
+def body_blank_runs(path: str) -> list[tuple]:
+    """문서 순서의 본문 밑줄런 전체 목록 — [(블랭크ID, 런 문자열)].
+
+    장식(방출 제외) 런도 포함(ID 자리 유지)하되 ID는 동일 형식으로 부여 —
+    라이브 find 순회가 문서의 모든 본문 밑줄런을 순서대로 지나가며
+    카운터를 extract와 정확히 맞추기 위한 목록이다.
+    """
+    return [(f"s{s}_u{c}", run)
+            for s, c, run, _p, _sfx, _d in _iter_body_blank_matches(path)]
 
 
 def _fill_body_blanks(root, s_idx: int, body_targets: dict) -> int:
