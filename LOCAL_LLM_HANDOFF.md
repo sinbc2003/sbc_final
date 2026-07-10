@@ -4,7 +4,8 @@
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
 > ## ⏩ 다음 세션은 여기부터 (2026-07-08 Desktop 갱신)
-> **§14 감사 1라운드 완료 → 다음 = §15 끝 「남은 저우선 결함」 처리** (무음실패·API오류처리·프론트 드리프트·다른 LLM노드 스키마강제). 40-에이전트 감사로 53확정결함 도출, high 6·구조적 결함(추출→채우기 파이프라인, 러너 입력검증, table 정규화, kordoc) **6커밋 수정·push·벤치 495/495 회귀확인 완료**. 상세 §15. 환경·실행법 §11.
+> **최우선 = §16 「다음 세션 착수 계획」 = gemma 실시간 문서제어 범용 경로 구현.** 사용자 최종목표: 어떤 hwpx든 gemma가 실시간 제어로 요청대로 채움, **모든 걸 gemma가(실사용엔 Opus 없음)**. 이번 세션 실증: gemma가 **빈칸 의미 파악+값+올바른 칸 배치를 스스로 100%**(산수만 코드 몫), inline-ai=**COM(pyhwpx) 확정**, 우리도 같은 메커니즘 보유·차이는 신뢰성뿐. **1순위 = `form_assist`를 hwpx_grid 라벨그리드 + json_schema(셀ID enum)로 개선.**
+> (이전: §14 감사 2라운드 = 53확정결함 중 high 6·goal-critical 전부 12수정묶음 push·벤치 495/495 회귀확인 완료. 상세 §15. 환경·실행법 §11.)
 > ⚠️ 이 프로젝트는 이제 **Desktop(`C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final`, RTX5080)** 에서 작업. 노트북(sinbc) 경로/§10.6 goe_watcher 이슈는 Desktop엔 **해당 없음**.
 >
 > **Desktop에서 완료 (2026-07-08)**:
@@ -574,3 +575,47 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **세션 한도로 미검증**된 발견(러너 temp_dir 미정리, output_dir 미설정시 Desktop 복사, 프론트 캔버스 UX 다수)은 §14 재감사 시 재검증.
 - **원칙 재확인**: 모든 개선은 "gemma급 소형 로컬 모델로 문서 제어·작성이 잘 되는가" 기준. llm_extract·llm_classify가 이제 json_schema 강제(GBNF)를 쓰므로 추출·분류는 소형모델이 100%. **다음 큰 레버 = LoRA 증류(생성 품질)**.
 - **📄 LoRA 착수 = `GEMMA_LORA_GUIDE.md`(리포 루트, 신규)**: 이번 감사에서 확보한 노드별 LLM 계약(=학습데이터 스키마)·프롬프트 원문·역할분담 경계·**lora 배선 공백 정확한 위치(#22 실측: `_start_llama_server`에 `--lora` 없음, `_generate_local`이 lora 무시, `_find_lora` 죽은코드)**·증류 파이프라인·검증 안전망·착수 체크리스트 8단계. **LoRA 주 타깃 = llm_generate(생성) 하나** — 추출·분류는 스키마강제로 이미 100%라 LoRA 불필요(넣으면 오히려 베이스 능력 열화, §9).
+
+---
+
+## 16. 작업 기록 — 2026-07-08 (gemma 문서제어 실증 + inline-ai=COM 원리확정 + 실시간 제어 계획)
+
+> ⏭️ **다음 세션 최우선 = §16의 "다음 세션 착수 계획"**. 사용자 최종목표(재확인): **"어떤 hwpx든 gemma가 실시간 제어해서 빈칸/적당한 위치에 요청대로 작성. 모든 걸 gemma가. 실사용엔 gemma만, Opus 없음."** ⚠️ 즉 **Opus가 매번 스크립트로 매핑 짜넣는 건 무의미** — 제품(엔진)+gemma만으로 도는 범용 경로를 만들어야 함.
+
+### 🎯 gemma 능력 실증 (채용점수표 hwpx로 단계별 테스트, 전부 로컬 gemma)
+소형 로컬 모델(Gemma 3n E4B)이 문서 제어를 **어디까지 스스로 하는가**를 4단계로 검증:
+1. **값만 gemma, 배치는 코드**: gemma가 명단 텍스트 파싱(records) → 코드가 셀 매핑. 배치 100%.
+2. **값+계산+순위 전부 gemma**: 열 정의+요청만 주니 gemma가 점수 창작+소계/평균/합계 계산+순위. **계산 거의 정확**(신재아 1등 등), 흠은 "37.0 vs 37" 표기뿐.
+3. **Level A — gemma가 셀 위치 스스로 지정**(라벨된 빈칸 목록 + json_schema로 셀ID enum 강제): **배치 33칸 전부 정확**. 단 그 판(run)에선 순위 오류.
+4. **Level B — 라벨도 안 줌**(원시 그리드+셀ID만): gemma가 **헤더 읽고 각 칸 의미 스스로 파악** → 성명/점수 열 배치 100%, 순위도 정확. 단 소계 1건 덧셈 오류(140→130).
+
+**결론(핵심)**: gemma는 **문서 이해 + 빈칸 의미 파악 + 값 + 올바른 칸 배치**를 스스로 안정적으로 함(라벨을 코드가 떠먹여줄 필요 없음). **딱 두 가지만 코드 몫**: ① 파일 파싱(.hwpx→텍스트, 지능 아님) ② **산수 정확성(평균 반올림·합계·순위)** — 소형모델이 자주 틀림. → 최적 = gemma 자율 배치 + 코드 계산 검산. (설계 §10.5 실증.) 스크립트: 세션 scratchpad `gemma_places_cells.py`(Level A)·`gemma_selfparse.py`(Level B)·`build_from_gemma.py`.
+
+### 🔧 COM 실시간 제어 경로 — 확인·미해결
+- **제품에 이미 있음**: `engine/form_assist.py`의 `scan_hwp_structure`(COM `init_scan`→`get_text`→`move_pos`→`get_pos` = Inline AI 역공학 그대로) + `fill_hwp_by_cells`(`set_pos`→`is_cell`→`SelectAll`→`insert_text`). 채팅 라이브는 `engine/chat/live_chat.py handle_live_chat`.
+- **실측 확인(이번 세션)**: COM 스캔이 실제 동작 — `신병철_역사_채용1위.hwpx`에서 **1307요소/표셀1235/빈표셀431** 파악. `fill_hwp_by_cells`는 **스캔이 준 좌표에 그대로** set_pos → **채움엔 좌표 불일치 없음**(스캔·채움 같은 COM 좌표계). 스크립트: scratchpad `com_scan_test.py`.
+- **미해결 난제(§5 gap #2)**: COM 스캔은 셀을 **문서 읽기순 일렬**(#0,#1…)로 줌 → **복잡 병합표에서 "몇 행 몇 열"을 되짚는 게 어려움**. 이게 라이브 COM을 복잡표에 못 쓴 이유(그래서 파일-그리드 우회). **inline-ai가 공들여 푼 지점이 바로 여기.**
+- **form_assist 약점 2개(개선 대상)**: ① `_call_llm`이 **json_schema 미사용**(소형모델 신뢰성↓) ② HWPX 표현이 **InitScan 평면목록**(라벨 약함) — 우리 `hwpx_grid.extract_blank_fields`(행헤더×열헤더 라벨) + `render()`(셀ID 박힌 그리드)가 훨씬 나음. Level A/B가 이걸로 성공.
+
+### 🔍 inline-ai v0.4.4 = COM(pyhwpx) 확정 (리버싱 없이, 파일명 관찰만)
+- 워커 `agent_document_tool_executor`가 **`pyhwpx`(한/글 COM) + `xlwings`(Excel COM)** + lxml/pandas/PIL/python_calamine 번들. → **v0.4.4도 여전히 COM 제어.** "COM은 구버전" 걱정 불식. RE 문서의 COM 메커니즘이 현행.
+- ⚠️ **inline-ai 로그는 암호화**(`LOGENC:v1:`) — 복호화=금지된 리버싱이라 안 봄. **데스크톱 제어(computer-use)는 사용자가 이번에 거부** → 라이브 관찰은 재승인 필요(불필수, 메커니즘 이미 확정).
+- **결론**: 메커니즘은 inline-ai와 동일하게 이미 보유(pyhwpx COM). **차이는 신뢰성뿐**(일렬스캔→행열복원).
+
+### 💡 부수 수확 (재사용)
+- **한/글 COM PDF 내보내기 무인화**: `hwp.set_message_box_mode(0x00011011)`(OK+확인+예+예 자동) 후 `hwp.save_as(path,"PDF")` → 대화상자 멈춤 없이 동작. (이거 없으면 비대화형 세션에서 save_as가 대화상자에 멈춤.) 스크립트 `to_pdf_com.py`.
+- **텔레그램 전송**: 코카 데스크톱 봇으로 `sendDocument`. 봇 토큰·chat_id는 `C:\Users\PC\.cokacdir\cokacctl.json` + CLAUDE.md(owner_user_id). ⚠️ **토큰은 시크릿 — MD/깃에 값 넣지 말 것.** 스크립트 `send_tg.py`.
+
+### ⏭️ 다음 세션 착수 계획 — "gemma 실시간 문서제어" 범용 경로 구현
+**목표**: 제품 함수 하나로 `(hwpx 양식, 자연어 요청) → gemma가 스캔결과 보고 {셀ID/블록ID: 값} 결정 → COM 실시간 기록`. Opus 매핑 없음.
+1. **`form_assist` 개선(핵심)**: HWPX 경로를 InitScan 평면목록 → **`hwpx_grid` 라벨 그리드**로 교체 + **`_call_llm`에 json_schema(셀ID enum) 강제**. Level A/B에서 검증된 방식. (배치는 gemma가 100% 함.)
+2. **계산 안전망**: gemma 출력 중 파생 산수(소계·평균·합계·순위)는 코드가 재계산·검산(소형모델 산수 오류 흡수). 단, "계산 열"을 범용 감지하는 건 어려우니 우선 명시적 규칙/후처리로.
+3. **라이브 COM 신뢰성(난제)**: 복잡 병합표에서 COM 일렬스캔→행/열 복원. 접근안: 파일-그리드(`hwpx_grid`, r/c 명확)로 gemma가 배치 결정 → COM은 **그 셀 좌표를 스캔에서 찾아** set_pos 기록(스캔·그리드 매칭). 또는 단순양식/누름틀은 InitScan 직행.
+4. **검증**: 다양한 hwpx(누름틀 가정통신문, 병합 점수표)로 "요청→gemma 배치→COM 기록→PDF" E2E. 벤치 495/495 회귀 유지.
+- **주의**: 실사용은 gemma-only. Opus 스크립트 매핑 금지 — 로직은 전부 제품 코드에 넣어 gemma가 소비하게.
+
+### 미해결 (누적)
+- 라이브 COM 복잡표 행/열 복원(§5 gap #2) — 위 3.
+- form_assist json_schema·그리드 전환 — 위 1 (미착수, 다음 세션 1순위).
+- LoRA 증류(생성 품질) — `GEMMA_LORA_GUIDE.md`, 별도 트랙.
+- 감사 남은 저우선 결함(§15 목록) + 미검증 결함(runner temp_dir/output_dir Desktop복사).
