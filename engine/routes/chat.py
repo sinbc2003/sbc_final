@@ -75,12 +75,12 @@ async def _handle_form_assist_async(message: str, file_paths: list[str], model: 
 
     logs: list[str] = []
 
-    # HWP InitScan (COM 스레드 필요)
+    # HWP InitScan (COM 스레드 필요) — .hwpx는 그리드(COM-free)라 스캔 불필요, 레거시 .hwp만.
     hwp_elements = None
     if output_idx >= 0:
         tp = files[output_idx]["path"]
         ext = Path(tp).suffix.lower()
-        if ext in (".hwp", ".hwpx"):
+        if ext == ".hwp":
             try:
                 from engine.form_assist import scan_hwp_structure
                 hwp_elements = await deps.run_on_com(lambda: scan_hwp_structure(tp, lambda m: logs.append(m)))

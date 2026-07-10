@@ -3,8 +3,9 @@
 > 작성: 2026-07-02 / 프로젝트: TeacherFlow (`C:\Users\sinbc\OneDrive\바탕 화면\00_sbc_final`)
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
-> ## ⏩ 다음 세션은 여기부터 (2026-07-08 Desktop 갱신)
-> **최우선 = §16 「다음 세션 착수 계획」 = gemma 실시간 문서제어 범용 경로 구현.** 사용자 최종목표: 어떤 hwpx든 gemma가 실시간 제어로 요청대로 채움, **모든 걸 gemma가(실사용엔 Opus 없음)**. 이번 세션 실증: gemma가 **빈칸 의미 파악+값+올바른 칸 배치를 스스로 100%**(산수만 코드 몫), inline-ai=**COM(pyhwpx) 확정**, 우리도 같은 메커니즘 보유·차이는 신뢰성뿐. **1순위 = `form_assist`를 hwpx_grid 라벨그리드 + json_schema(셀ID enum)로 개선.**
+> ## ⏩ 다음 세션은 여기부터 (2026-07-10 Desktop 갱신)
+> **✅ §16 1순위 완료 = `form_assist` HWPX 그리드 경로 + json_schema(셀ID enum) 강제.** 상세 = **§17**. 이제 어떤 hwpx 양식이든 (참고문서+지시) → gemma가 **라벨 그리드 읽고 셀ID enum으로 값 배치** → `fill_hwpx_cells`(COM-free)로 채움. 소형 gemma E2E 통과(가정통신문 4빈칸 100% 정확 배치, 무효ID 0). 벤치 495/495 회귀 유지.
+> **다음 후보**: ① §16-2 계산 안전망(파생 산수 코드 재계산 — 범용 계산열 감지) ② §16-3 라이브 COM 복잡표 행/열 복원(§5 gap#2, 난제) ③ LoRA 증류(`GEMMA_LORA_GUIDE.md`, 생성 품질) ④ HTTP E2E(`/api/form-assist`·`/api/chat` 프론트 연결) ⑤ 큰 양식(빈칸 수백) 그리드 렌더 컨텍스트 초과 대비 분할.
 > (이전: §14 감사 2라운드 = 53확정결함 중 high 6·goal-critical 전부 12수정묶음 push·벤치 495/495 회귀확인 완료. 상세 §15. 환경·실행법 §11.)
 > ⚠️ 이 프로젝트는 이제 **Desktop(`C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final`, RTX5080)** 에서 작업. 노트북(sinbc) 경로/§10.6 goe_watcher 이슈는 Desktop엔 **해당 없음**.
 >
@@ -616,6 +617,45 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 
 ### 미해결 (누적)
 - 라이브 COM 복잡표 행/열 복원(§5 gap #2) — 위 3.
-- form_assist json_schema·그리드 전환 — 위 1 (미착수, 다음 세션 1순위).
+- ~~form_assist json_schema·그리드 전환~~ → **§17에서 완료**.
 - LoRA 증류(생성 품질) — `GEMMA_LORA_GUIDE.md`, 별도 트랙.
 - 감사 남은 저우선 결함(§15 목록) + 미검증 결함(runner temp_dir/output_dir Desktop복사).
+
+---
+
+## 17. 작업 기록 — 2026-07-10 (form_assist HWPX 그리드 경로 + json_schema 강제 ✅ = §16 1순위 완료)
+
+> §16 「다음 세션 착수 계획」의 1순위(`form_assist`를 hwpx_grid 라벨그리드 + json_schema 셀ID enum으로 개선)를 제품 코드에 구현. Level A/B·벤치 495/495에서 검증됐던 "gemma가 라벨 그리드 읽고 셀ID enum으로 자율 배치, 채움은 COM-free 그리드" 방식을 form_assist 실경로로 이관.
+
+### 🎯 헤드라인
+**HWPX 양식 채우기가 InitScan 평면목록(COM) → 병합-인지 라벨 그리드(COM-free) + json_schema(셀ID enum) 강제로 전환.** 로컬 gemma가 빈칸 라벨(행헤더×열헤더) 의미를 읽고 올바른 셀ID에 값 배치. 소형 모델이 셀ID를 **못 틀리게**(GBNF enum) + **환각 ID 자동 필터**.
+
+### 변경 (5파일)
+1. **`engine/llm_manager.py` `generate_chat`에 `json_schema` 인자 추가**: local은 `_generate_local_chat`으로 GBNF 강제 디코딩 직통(기존 `_local_chat_completion`의 `response_format:json_schema` 재사용), API는 마지막 user 메시지에 스키마 지시 소프트강제(원본 messages 불변, 복사본 사용). local 분기를 함수 상단으로 올려 명확화(fallback도 json_schema 전달).
+2. **`engine/form_assist.py` `run_form_assist` fill_mode 디스패치로 재작성** (`none|excel|hwpx_grid|hwp_com|hwp_text`):
+   - **`.hwpx` → `hwpx_grid`**(핵심): `parse_hwpx` → `extract_blank_fields(include_filled=True)` 중 빈/자리표시자 셀만 → 라벨 목록 + `render_text(mark_blanks=True)` 그리드를 프롬프트에, `_build_fill_schema`(셀ID enum) 강제 → `_parse_fill_response`(스키마형/배열형/평면dict 흡수 + valid_ids 필터) → `relocate_below_markers`(이하빈칸 이동) → **`fill_hwpx_cells`(COM-free)** → `_완성.hwpx` 직접 생성. **한/글 COM 불필요.**
+   - `.hwp`(레거시) → `hwp_com`: 기존 InitScan 평면목록 유지하되 **셀ID enum json_schema 추가**(신뢰성↑). 라우트가 `fill_hwp_by_cells`로 COM 채움(계약 유지).
+   - `.xlsx` → `excel`: 기존 form_extract→form_fill 동일.
+   - hwpx 빈칸 0개 or 그리드 파싱 실패 → `hwp_text`(form_fill 파일기반 치환, COM-free) 폴백.
+   - 신규 헬퍼: `_is_placeholder`/`_is_fillable`(자리표시자 ○○○·□□□·___ 감지, OX 데이터 오인 방지 위해 길이2+·-·.·· 제외), `_build_fill_schema`, `_render_blank_list`, `_parse_fill_response`, `_resolve_save_dir`. `_call_llm`에 `json_schema` 전달.
+3. **`engine/routes/form_assist.py`·`engine/routes/chat.py`**: COM 스캔(`scan_hwp_structure`)을 **`.hwp`에만** 제한(.hwpx는 그리드=COM-free라 스캔 불필요). hwpx는 `run_form_assist`가 `result["file"]` 직접 반환 → 라우트의 COM 채움 분기(`fill_data and hwp_elements`)는 .hwp만 탐.
+
+### 검증
+- **결정적 라운드트립(LLM 목킹)**: bench에서 22셀 클리어→빈양식, 가짜 LLM이 `{채움:[{id,값}]}` + 무효ID 섞어 반환 → 스키마 enum 정확 구성(타깃⊆enum, 무효∉enum) + 전달 확인 + 무효ID 필터 + 3/3 정확 주입. (scratchpad `test_grid_mech.py`)
+- **로컬 gemma E2E**: 소형 양식(항목|내용 표, 행사명/일시/장소/대상 4빈칸) + 지시문 → gemma가 라벨 의미로 **4/4 올바른 셀 배치**(행사명=가을 독서 축제, 일시=10월 15일 오후 2시, 장소=본교 대강당, 대상=전교생), 무효ID 0, `_완성.hwpx` 생성·재파싱 확인. (scratchpad `test_grid_gemma.py`)
+- **회귀**: `benchmark_form_fill.py --llm local` → 레벨1 왕복 1126/1126, 마커 1126/1126, **레벨2 로컬 gemma 495/495 (100%)** 재현. (generate는 미변경, generate_chat만 확장 — bench 무영향 확인.)
+
+### 설계 메모 / 남은 것
+- **`hwpx_grid`가 이 경로의 심장**: 파싱·채움이 `_iter_tables` 순회를 공유해 셀ID(`s{sec}_t{tbl}_r{행}_c{열}`) 일관성 보장. LLM은 "의미 매칭"만, 좌표·주입은 코드. (설계 §1 그대로.)
+- **복잡 병합 점수표**: 이 범용 경로는 gemma가 값+배치를 하지만 파생 산수(소계/평균/순위)는 아직 LLM 몫 → §16-2 계산 안전망(코드 재계산) 미구현. 벤치의 code-계산 경로(`benchmark_form_fill.compute_derived`)를 범용 후처리로 승격하는 게 다음 레버(계산 열 감지가 관건).
+- **큰 양식**: 그리드 렌더 12000자 초과 시 절단 → 셀ID 잘릴 위험. 빈칸 수백짜리 대형 표는 표 단위 청킹 필요(현재 미구현, 일반 공문/통신문은 무관).
+- **HTTP E2E 미검증**: 위 검증은 `run_form_assist` 직호출. `/api/form-assist`·`/api/chat` 프론트 왕복은 다음 세션.
+
+### 적대적 리뷰 + 수정 (7-에이전트 워크플로우: correctness/통합/회귀 3렌즈 → 검증)
+초기 구현에서 **4개 결함(전부 CONFIRMED, medium)** 발견 → 전부 수정 → 재검증 RESOLVED:
+1. **데이터 손실**: `_is_placeholder`가 부분문자열('기입' 등)로 실데이터 셀을 자리표시자 오판 → 덮어쓰기. **수정**: 전체일치 단어(`_PLACEHOLDER_WORDS`)만 + 글자셋 `○◯〇_＿`(체크박스 □■ 제외)만 + len≤12. 빈 셀은 is_empty로 이미 잡히므로 보수적 판정이 안전. 단위테스트 14케이스(짧은 서술 '학생이 기입하였음'·'■□' 보호) 통과.
+2·4. **.hwp COM 우회/행**: `.hwp`+스캔실패 시 hwp_text→`form_fill._fill_hwp`(win32com PutFieldText)가 전용 COM풀(`deps._com_pool`)을 우회 실행 + find/replace 키가 누름틀명과 불일치. **수정**: `hwp_text`+`.hwp`는 독립 elif로 **자동 채우기 생략(텍스트만)**. 정상 .hwp 채움은 `hwp_com`(셀ID 기반 `fill_hwp_by_cells`, COM풀) 담당. → form_assist에서 `.hwp`가 `_fill_hwp`에 도달 불가.
+3. **.hwpx 비-표 양식 회귀**: 표 빈칸 없는 .hwpx(누름틀·본문밑줄)가 미충전. **수정**: `_extract_hwpx_fields`로 누름틀(id=필드명)을 grid_fields에 포함 + hwpx_grid 주입을 `form_fill.execute`(그리드ID→`fill_hwpx_cells`+마커, 누름틀명→`_fill_hwpx_section`, 전부 COM-free)로 라우팅. (본문 밑줄 `______` 블랭크는 여전히 미지원 — 문서화된 한계, 표/누름틀 없으면 hwp_text 안내.)
+- **재검증**: 4결함 RESOLVED·새 확정결함 0. **PLAUSIBLE 1건**(감시): .hwpx+누름틀에서 `_fill_hwpx_section`의 기존 라벨 퍼지매칭(`key in label`)이 인접 빈셀 과충전 소지 — 순수 표 양식(bench 경로)은 legacy 스킵되어 무관, form_fill 기존 코드.
+- 회귀 재확인: 수정 후 벤치 495/495·gemma E2E 4/4 재현.
+- **HTTP E2E 미검증**·본문밑줄 블랭크·누름틀 퍼지매칭이 다음 세션 후속 후보.

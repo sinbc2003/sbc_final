@@ -65,7 +65,8 @@ async def form_assist(
     template_path = None
     if 0 <= output_idx < len(file_infos):
         tp = file_infos[output_idx]["path"]
-        if Path(tp).suffix.lower() in (".hwp", ".hwpx"):
+        # .hwpx는 그리드(COM-free)로 run_form_assist가 직접 채운다 → COM 스캔은 레거시 .hwp만.
+        if Path(tp).suffix.lower() == ".hwp":
             template_path = tp
             hwp_elements = await deps.run_on_com(lambda: scan_hwp_structure(tp, log_cb))
 

@@ -150,14 +150,40 @@ class LLMManager:
         temperature: float = 0.3,
         provider: str = "openai",
         model: str = "gpt-4.1",
+        json_schema: dict | None = None,
     ) -> str:
         """멀티턴 대화. messages: [{role, content}, ...]
 
         provider/model은 "provider/model" 형태로도 전달 가능 (예: "claude/claude-sonnet-4-6").
+
+        json_schema가 주어지면: 로컬은 llama-server가 GBNF로 강제 디코딩(못 틀림),
+        API는 마지막 user 메시지에 스키마 지시를 덧붙이는 소프트 강제.
         """
         # "provider/model" 형식 파싱
         if "/" in provider:
             provider, model = provider.split("/", 1)
+
+        # 로컬: 역할 배열 직통 + GBNF 스키마 강제
+        if provider == "local":
+            return self._generate_local_chat(
+                messages, max_tokens=max_tokens, temperature=temperature,
+                json_schema=json_schema,
+            )
+
+        # API: 스키마 소프트 강제 (원본 messages 불변 — 복사본에 지시 덧붙임)
+        if json_schema:
+            hint = (
+                "\n\n반드시 아래 JSON 스키마에 맞는 JSON만 출력하라"
+                "(설명·마크다운·코드펜스 금지):\n"
+                + json.dumps(json_schema, ensure_ascii=False)
+            )
+            messages = [dict(m) for m in messages]
+            for m in reversed(messages):
+                if m.get("role") == "user":
+                    m["content"] = (m.get("content") or "") + hint
+                    break
+            else:
+                messages.append({"role": "user", "content": hint.strip()})
 
         if provider == "openai":
             from openai import OpenAI
@@ -204,13 +230,10 @@ class LLMManager:
             response = gm.generate_content(parts, generation_config={"max_output_tokens": max_tokens, "temperature": temperature})
             return response.text
 
-        if provider == "local":
-            # messages 역할 배열 직통 → 내장 chat 템플릿이 system/user 정확 적용
-            return self._generate_local_chat(messages, max_tokens=max_tokens, temperature=temperature)
-
-        # fallback
+        # fallback (local은 위에서 이미 처리)
         prompt = "\n".join(f"[{m['role']}] {m['content']}" for m in messages)
-        return self.generate(prompt, max_tokens=max_tokens, temperature=temperature, provider=provider)
+        return self.generate(prompt, max_tokens=max_tokens, temperature=temperature,
+                             provider=provider, json_schema=json_schema)
 
     def generate_chat_stream(
         self,

@@ -82,31 +82,64 @@ def run_form_assist(
                 output_template = e
                 break
 
-    # ── 3. 빈칸 추출 (양식이 있을 때) ──
+    # ── 3. 양식 유형 판별 + 빈칸/구조 준비 ──
+    #   fill_mode: none | excel | hwpx_grid | hwp_com | hwp_text
+    #   - hwpx_grid = 병합-인지 그리드(COM-free, 벤치 495/495 검증 경로) + 셀ID enum 강제
+    fill_mode = "none"
+    json_schema: Optional[dict] = None
     blanks_json = ""
+    grid_doc = None
+    grid_fields: list[dict] = []
+    blank_ids: set = set()
+
     if output_template:
-        ext = output_template["ext"]
-        if ext in (".xlsx", ".xls"):
-            # Excel은 정확한 빈칸 추출 가능
+        t_ext = output_template["ext"]
+        if t_ext in (".xlsx", ".xls"):
+            fill_mode = "excel"
             log(f"양식 빈칸 추출: {output_template['name']}")
             try:
                 from nodes.form_extract.main import execute as extract_fn
                 ctx = {"temp_dir": temp_dir, "progress": lambda x: None, "log": log}
-                result = extract_fn(
+                ex = extract_fn(
                     inputs={"파일": output_template["path"]},
                     params={"include_filled": False},
                     context=ctx,
                 )
-                blanks_json = result.get("빈칸목록", "")
+                blanks_json = ex.get("빈칸목록", "")
                 blanks = json.loads(blanks_json) if blanks_json else []
                 log(f"  빈칸 {len(blanks)}개 감지")
             except Exception as e:
                 log(f"  빈칸 추출 실패: {e}")
                 blanks_json = "[]"
-        else:
-            # HWP/HWPX — 전체 텍스트를 LLM에 맡김
-            log(f"양식 텍스트 기반 처리: {output_template['name']}")
-            blanks_json = ""  # 빈칸 목록 없이 텍스트로 처리
+        elif t_ext == ".hwpx":
+            # 병합-인지 그리드 빈칸(행헤더×열헤더 라벨) + 누름틀 — 전부 COM 불필요.
+            try:
+                from engine.hwpml.hwpx_grid import parse_hwpx, extract_blank_fields
+                grid_doc = parse_hwpx(output_template["path"])
+                grid_fields = [
+                    f for f in extract_blank_fields(grid_doc, include_filled=True)
+                    if f.get("value_type") == "text" and _is_fillable(f)
+                ]
+                grid_fields += _extract_hwpx_fields(output_template["path"])  # 누름틀
+                if grid_fields:
+                    fill_mode = "hwpx_grid"
+                    blank_ids = {f["id"] for f in grid_fields}
+                    json_schema = _build_fill_schema(sorted(blank_ids))
+                    log(f"양식 그리드: 표 {len(grid_doc.tables)}개, 채울 빈칸 {len(grid_fields)}개")
+                else:
+                    fill_mode = "hwp_text"
+                    log("표/누름틀 빈칸 없음 — 텍스트 치환 경로")
+            except Exception as e:
+                log(f"HWPX 그리드 분석 실패 → 텍스트 경로: {e}")
+                fill_mode = "hwp_text"
+        elif t_ext == ".hwp":
+            # 레거시 바이너리: COM InitScan 결과(hwp_elements)로 셀ID 기반 채우기.
+            if hwp_elements:
+                fill_mode = "hwp_com"
+                json_schema = _build_fill_schema([str(e["id"]) for e in hwp_elements])
+                log(f"HWP 구조 스캔: {len(hwp_elements)}개 요소")
+            else:
+                fill_mode = "hwp_text"
 
     # ── 4. LLM 프롬프트 구성 ──
     progress(0.5)
@@ -117,7 +150,6 @@ def run_form_assist(
     for e in extracted:
         if e is not output_template and e["text"]:
             context_parts.append(f"### {e['name']}\n{e['text']}")
-
     context_text = "\n\n---\n\n".join(context_parts) if context_parts else "(참고 문서 없음)"
 
     prompt = f"""당신은 교사의 공문 양식을 채우는 비서입니다.
@@ -128,54 +160,59 @@ def run_form_assist(
 ## 교사 지시사항
 {instruction if instruction else "(없음)"}
 """
+    range_note = f"\n### 작성 범위: {page_range}\n" if page_range else ""
 
-    if output_template and blanks_json:
-        # Excel 양식 — 정확한 셀 참조로 채우기
+    if fill_mode == "excel":
         prompt += f"""
 ## 출력 양식: {output_template['name']}
 ### 빈칸 목록
 {blanks_json}
-
-{f'### 작성 범위: {page_range}' if page_range else ''}
-
+{range_note}
 위 참고 문서와 교사 지시를 바탕으로 각 빈칸에 적절한 값을 채우세요.
 반드시 JSON으로만 답하세요: {{"셀참조": "값", ...}}
-설명 없이 JSON만 반환.
-빈칸 목록의 cell_ref를 키로 사용하세요.
+빈칸 목록의 cell_ref를 키로 사용하세요. 설명 없이 JSON만 반환.
 """
-    elif output_template and not blanks_json and hwp_elements:
-        # HWP/HWPX 양식 — 셀 ID 기반 채우기 (InitScan 스캔 결과)
+    elif fill_mode == "hwpx_grid":
+        grid_render = grid_doc.render_text(mark_blanks=True)
+        if len(grid_render) > 12000:
+            grid_render = grid_render[:12000] + "\n…(생략)"
+        blank_list = _render_blank_list(grid_fields)
+        prompt += f"""
+## 출력 양식: {output_template['name']}
+### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)
+{grid_render}
+
+### 채워야 할 빈칸 ({len(grid_fields)}개)
+{blank_list}
+{range_note}
+위 참고 문서와 교사 지시를 바탕으로, 각 빈칸에 알맞은 값을 넣으세요.
+- 빈칸 라벨(행 이름 × 열 이름)의 의미에 맞는 값을 채우세요.
+- 값을 알 수 없거나 채울 필요가 없는 빈칸은 생략하세요.
+- 이미 의미 있는 값이 들어 있는 칸은 그대로 두세요(비어 있을 때만 채움).
+- id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.
+"""
+    elif fill_mode == "hwp_com":
         cell_desc = _format_hwp_elements(hwp_elements)
         prompt += f"""
 ## 출력 양식: {output_template['name']}
 ### 문서 구조 (셀 ID + 현재 내용)
 {cell_desc}
-
-{f'### 작성 범위: {page_range}' if page_range else ''}
-
+{range_note}
 위 참고 문서와 교사 지시를 바탕으로, 빈칸이 있는 셀을 채우세요.
-
-반드시 JSON으로만 답하세요: {{"셀ID": "채울내용", ...}}
 - 빈칸(○○○, ___, 공란, 빈 값, 미입력)이거나 채워야 할 셀만 포함하세요.
 - 이미 올바른 값이 들어있는 셀은 건드리지 마세요.
-- 셀 ID는 위 구조의 id 값(숫자 문자열)을 그대로 사용하세요.
-- 설명 없이 JSON만 반환하세요.
+- id는 위 구조의 id 값(숫자 문자열)을 그대로 사용하세요.
 """
-    elif output_template and not blanks_json:
-        # HWP/HWPX fallback — 텍스트 기반 (스캔 없이)
+    elif fill_mode == "hwp_text":
         prompt += f"""
 ## 출력 양식: {output_template['name']}
 ### 양식 텍스트
 {output_template['text'][:5000]}
-
-{f'### 작성 범위: {page_range}' if page_range else ''}
-
+{range_note}
 위 참고 문서와 교사 지시를 바탕으로, 이 양식의 빈칸을 채우세요.
-
 반드시 JSON으로만 답하세요: {{"찾을텍스트": "바꿀텍스트", ...}}
 - 양식에서 빈칸(○○○, ___, 공란, 예시 텍스트 등)을 찾아 실제 값으로 바꾸세요.
-- 표의 빈 셀이나 미완성 내용도 포함하세요.
-- 설명 없이 JSON만 반환하세요.
+- 표의 빈 셀이나 미완성 내용도 포함하세요. 설명 없이 JSON만 반환하세요.
 """
     else:
         prompt += """
@@ -184,51 +221,24 @@ def run_form_assist(
 마크다운 형식으로 답하세요.
 """
 
-    # ── 5. LLM 호출 ──
+    # ── 5. LLM 호출 (양식이면 json_schema 강제) ──
     progress(0.6)
-
-    llm_response = _call_llm(prompt, llm_provider, llm_model, llm_config or {})
+    llm_response = _call_llm(prompt, llm_provider, llm_model, llm_config or {},
+                             json_schema=json_schema)
     log(f"AI 응답: {len(llm_response)}자")
 
-    # ── 6. 양식 주입 또는 텍스트 반환 ──
+    # ── 6. 저장 경로 + 모드별 주입 ──
     progress(0.8)
-
     result = {"text": llm_response, "file": None}
+    save_dir = _resolve_save_dir(output_dir, temp_dir)
 
-    # JSON 파싱 가능 여부 확인 (Excel blanks_json 케이스 또는 HWP JSON 케이스)
-    has_json = output_template is not None
-    if has_json:
+    if fill_mode == "hwpx_grid":
         try:
-            fill_data = _extract_json_from_response(llm_response)
-            if fill_data is None:
-                raise json.JSONDecodeError("JSON not found", llm_response, 0)
-            log(f"양식 주입: {len(fill_data)}개 항목")
-
-            ext = output_template["ext"]
-
-            # 출력 디렉토리 결정 (설정 > 바탕화면 > temp)
-            save_dir = output_dir
-            if not save_dir:
-                desktop = Path.home() / "Desktop"
-                if desktop.exists():
-                    save_dir = str(desktop)
-                else:
-                    # OneDrive 바탕화면
-                    for p in Path.home().glob("OneDrive*/바탕*화면"):
-                        if p.is_dir():
-                            save_dir = str(p)
-                            break
-            if not save_dir:
-                save_dir = temp_dir
-
-            if ext in (".hwp", ".hwpx") and _is_windows():
-                # HWP: COM 전용 스레드 필요 → 데이터만 반환 (서버에서 처리)
-                result["fill_data"] = fill_data
-                result["template_path"] = output_template["path"]
-                result["save_dir"] = save_dir
-                log(f"HWP 채우기 데이터 {len(fill_data)}개 항목 준비")
-            else:
-                # Excel 등: 파일 기반 채우기
+            fill_data = _parse_fill_response(llm_response, blank_ids)
+            log(f"그리드 채우기: {len(fill_data)}개 항목")
+            if fill_data:
+                # form_fill이 그리드 셀ID(fill_hwpx_cells+마커이동)와 누름틀(필드명)을
+                # 함께, COM 없이 처리한다.
                 from nodes.form_fill.main import execute as fill_fn
                 output_name = Path(output_template["name"]).stem + "_완성"
                 fill_result = fill_fn(
@@ -240,7 +250,50 @@ def run_form_assist(
                     context={"temp_dir": save_dir, "progress": lambda x: None, "log": log},
                 )
                 result["file"] = fill_result.get("파일")
+                if result["file"]:
+                    log(f"완성 파일: {result['file']}")
+            else:
+                log("LLM이 채울 항목을 반환하지 않았습니다")
+        except Exception as e:
+            import traceback
+            log(f"그리드 채우기 실패: {e}")
+            log(f"  {traceback.format_exc().splitlines()[-1]}")
 
+    elif fill_mode == "hwp_com":
+        # COM 전용 스레드 필요 → 데이터만 반환 (서버 라우트가 fill_hwp_by_cells 실행)
+        fill_data = _parse_fill_response(llm_response, {str(e["id"]) for e in hwp_elements})
+        if fill_data:
+            result["fill_data"] = fill_data
+            result["template_path"] = output_template["path"]
+            result["save_dir"] = save_dir
+            log(f"HWP 채우기 데이터 {len(fill_data)}개 항목 준비 (COM)")
+        else:
+            log("LLM이 채울 항목을 반환하지 않았습니다")
+
+    elif fill_mode == "hwp_text" and output_template["ext"] == ".hwp":
+        # .hwp 텍스트 폴백은 form_fill._fill_hwp(win32com PutFieldText)로 가는데
+        # ① 전용 COM 스레드(deps._com_pool)를 벗어나 실행되고(행/충돌 위험)
+        # ② find/replace 키가 누름틀 필드명과 안 맞아 조용히 미충전된다.
+        # → .hwp는 자동 채우기 대신 안내 텍스트만 반환(정상 채움은 hwp_com 경로 담당).
+        log("HWP 구조 스캔 결과 없음 — 자동 채우기 생략(텍스트만 반환)")
+
+    elif fill_mode in ("excel", "hwp_text"):
+        try:
+            fill_data = _extract_json_from_response(llm_response)
+            if fill_data is None:
+                raise json.JSONDecodeError("JSON not found", llm_response, 0)
+            log(f"양식 주입: {len(fill_data)}개 항목")
+            from nodes.form_fill.main import execute as fill_fn
+            output_name = Path(output_template["name"]).stem + "_완성"
+            fill_result = fill_fn(
+                inputs={
+                    "양식파일": output_template["path"],
+                    "채울내용": json.dumps(fill_data, ensure_ascii=False),
+                },
+                params={"output_name": output_name},
+                context={"temp_dir": save_dir, "progress": lambda x: None, "log": log},
+            )
+            result["file"] = fill_result.get("파일")
             if result["file"]:
                 log(f"완성 파일: {result['file']}")
         except json.JSONDecodeError:
@@ -446,6 +499,157 @@ def _format_hwp_elements(elements: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# ── 그리드 빈칸 채우기 헬퍼 ──
+
+# 명백한 "빈칸 표기" 글자만 (동그라미·밑줄류). 체크박스(□■▢)·대시·마침표·단일
+# 글자는 선택 상태/실데이터일 수 있어 제외 — 실데이터 덮어쓰기 사고 방지.
+_PLACEHOLDER_CHARS = set("○◯〇_＿")
+# 셀 전체가 이 단어일 때만 자리표시자로 인정(부분문자열 매칭은 '…기입하였음' 같은
+# 실데이터를 오인하므로 금지).
+_PLACEHOLDER_WORDS = {"예시", "미기재", "미입력", "기입란", "작성란", "기입", "작성"}
+
+
+def _is_placeholder(text: str) -> bool:
+    """'채워 넣으라'는 명백한 자리표시자만 인정 (예: ○○○, ___, '예시', '미기재').
+
+    보수적으로 판정 — 값이 있는 셀을 빈칸으로 오인해 덮어쓰는 사고를 막는다.
+    (빈 셀은 is_empty로 이미 잡히므로, 여기서 놓쳐도 실제 빈칸 누락은 없다.)
+    """
+    s = (text or "").strip()
+    if not s or len(s) > 12:
+        return False
+    if s in _PLACEHOLDER_WORDS:  # 전체 일치만 (부분문자열 오인 방지)
+        return True
+    core = s.replace(" ", "")
+    # 자리표시 글자로만 구성 + 길이 2+ (단일 ○/O 같은 OX 데이터 오인 방지)
+    return len(core) >= 2 and all(ch in _PLACEHOLDER_CHARS for ch in core)
+
+
+def _is_fillable(field: dict) -> bool:
+    """빈 셀은 채움 대상. 값이 있으면 명백한(짧은) 자리표시자일 때만."""
+    if field.get("is_empty"):
+        return True
+    return _is_placeholder(field.get("current_value", ""))
+
+
+def _extract_hwpx_fields(path: str) -> list[dict]:
+    """HWPX 누름틀(form-field) 목록 → 채움 대상 필드.
+
+    id = 필드명(=form_fill 레거시 경로의 매칭 키). 표 셀 그리드와 별개로 채운다.
+    """
+    import zipfile
+    from lxml import etree
+
+    fields: list[dict] = []
+    seen: set = set()
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            secs = sorted(n for n in zf.namelist()
+                          if "section" in n.lower() and n.endswith(".xml"))
+            for sec in secs:
+                try:
+                    root = etree.fromstring(zf.read(sec))
+                except etree.XMLSyntaxError:
+                    continue
+                for elem in root.iter():
+                    tag = (etree.QName(elem.tag).localname
+                           if "}" in str(elem.tag) else str(elem.tag))
+                    if tag in ("fieldBegin", "FIELDBEGIN"):
+                        name = elem.get("name", "") or elem.get("Name", "")
+                        if not name or name in seen:
+                            continue
+                        seen.add(name)
+                        fields.append({
+                            "id": name, "label": f"[누름틀] {name}",
+                            "current_value": "", "is_empty": True,
+                            "value_type": "field",
+                        })
+    except Exception:
+        pass
+    return fields
+
+
+def _build_fill_schema(ids) -> dict:
+    """{채움:[{id∈enum, 값:str}]} 강제 스키마 — 로컬은 GBNF가 셀ID를 못 틀리게 한다."""
+    return {
+        "type": "object",
+        "properties": {
+            "채움": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "enum": list(ids)},
+                        "값": {"type": "string"},
+                    },
+                    "required": ["id", "값"],
+                },
+            }
+        },
+        "required": ["채움"],
+    }
+
+
+def _render_blank_list(fields: list[dict]) -> str:
+    """빈칸 목록을 'id : 라벨 (현재값)' 줄로 렌더 (LLM이 의미 매칭할 대상)."""
+    lines = []
+    for f in fields:
+        cur = (f.get("current_value") or "").strip()
+        note = f"  (현재: {cur[:20]})" if cur else ""
+        lines.append(f"- {f['id']} : {f.get('label', '')}{note}")
+    return "\n".join(lines)
+
+
+def _parse_fill_response(text: str, valid_ids=None) -> dict:
+    """LLM 응답 → {셀ID: 값} 딕셔너리.
+
+    스키마 강제형({채움:[{id,값}]}), 배열형, 평면 dict({id:값}) 모두 흡수.
+    valid_ids가 주어지면 그 집합 밖의 셀ID는 버린다(소프트 강제/환각 방어).
+    """
+    valid = set(valid_ids) if valid_ids else None
+    out: dict = {}
+    obj = _extract_json_from_response(text)
+
+    items = []
+    if isinstance(obj, dict) and isinstance(obj.get("채움"), list):
+        items = obj["채움"]
+    elif isinstance(obj, list):
+        items = obj
+    elif isinstance(obj, dict):
+        # 평면 {셀ID: 값} (API 소프트 강제 또는 구형 응답)
+        for k, v in obj.items():
+            if isinstance(v, dict):
+                v = v.get("값", v.get("value", ""))
+            if v is not None:
+                out[str(k).strip()] = str(v)
+
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        cid = str(it.get("id") or it.get("셀ID") or it.get("cell_id") or "").strip()
+        if not cid:
+            continue
+        val = it.get("값", it.get("value", it.get("text", "")))
+        out[cid] = "" if val is None else str(val)
+
+    if valid is not None:
+        out = {k: v for k, v in out.items() if k in valid}
+    return out
+
+
+def _resolve_save_dir(output_dir: str, temp_dir: str) -> str:
+    """저장 경로: 설정값 > 바탕화면 > OneDrive 바탕화면 > temp."""
+    if output_dir:
+        return output_dir
+    desktop = Path.home() / "Desktop"
+    if desktop.exists():
+        return str(desktop)
+    for p in Path.home().glob("OneDrive*/바탕*화면"):
+        if p.is_dir():
+            return str(p)
+    return temp_dir
+
+
 # ── JSON 추출 (LLM 응답에서) ──
 
 def _extract_json_from_response(text: str) -> dict | None:
@@ -591,8 +795,12 @@ def _extract_text(path: str, ext: str, temp_dir: str, log) -> str:
 
 # ── LLM 호출 ──
 
-def _call_llm(prompt: str, provider: str, model: str, config: dict) -> str:
-    """llm_manager를 통한 멀티 프로바이더 LLM 호출."""
+def _call_llm(prompt: str, provider: str, model: str, config: dict,
+              json_schema: dict | None = None) -> str:
+    """llm_manager를 통한 멀티 프로바이더 LLM 호출.
+
+    json_schema가 있으면 로컬은 GBNF 강제, API는 소프트 강제(generate_chat 내부).
+    """
     from engine import deps
 
     mgr = deps.llm_manager
@@ -631,4 +839,5 @@ def _call_llm(prompt: str, provider: str, model: str, config: dict) -> str:
         temperature=config.get("temperature", 0.2),
         provider=provider,
         model=model_name,
+        json_schema=json_schema,
     )
