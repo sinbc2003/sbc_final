@@ -373,20 +373,37 @@ class LLMManager:
         import requests as _req
 
         server_url = self._ensure_local_server()
-        payload: dict = {
-            "model": "local",
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-        if json_schema:
-            # OpenAI 호환 스키마 강제 디코딩 (llama.cpp가 문법으로 강제)
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "response", "schema": json_schema},
+
+        def _post(with_schema: bool):
+            payload: dict = {
+                "model": "local", "messages": messages,
+                "max_tokens": max_tokens, "temperature": temperature,
             }
-        resp = _req.post(f"{server_url}/v1/chat/completions", json=payload, timeout=300)
+            if with_schema and json_schema:
+                # OpenAI 호환 스키마 강제 디코딩 (llama.cpp가 문법으로 강제)
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": "response", "schema": json_schema},
+                }
+            return _req.post(f"{server_url}/v1/chat/completions", json=payload, timeout=300)
+
+        resp = _post(with_schema=True)
         data = resp.json()
+
+        # GBNF 샘플러 초기화 실패(일부 모델 토크나이저 비호환, 예: Phi-3.5) →
+        # 스키마 지시를 프롬프트에 실어 소프트 강제로 우아하게 강등(하드 보장은 상실).
+        if json_schema and (resp.status_code != 200 or data.get("error")):
+            emsg = (data.get("error", {}) or {}).get("message", "") if isinstance(data.get("error"), dict) else ""
+            if "grammar" in (emsg + resp.text).lower() or "sampler" in (emsg + resp.text).lower():
+                import json as _json
+                messages = [dict(m) for m in messages] + [{
+                    "role": "user",
+                    "content": ("반드시 다음 JSON 스키마에 맞는 JSON만 출력하라(설명·마크다운 금지):\n"
+                                + _json.dumps(json_schema, ensure_ascii=False)),
+                }]
+                json_schema = None  # 재귀 방지: 이 호출은 소프트 강제로만
+                resp = _post(with_schema=False)
+                data = resp.json()
 
         # 오류 감지 (컨텍스트 초과 등)
         if resp.status_code != 200 or data.get("error"):
@@ -470,9 +487,10 @@ class LLMManager:
             "-ngl", ngl,
             "--jinja",
         ]
-        # 추론 토글: 사고모델(gemma-4/Qwen3)만 off로 content 확보. ""이면 플래그 생략.
+        # 추론 토글(llama.cpp: on|off|auto). 사고모델(gemma-4/Qwen3)은 off로 content
+        # 확보, 비사고 모델은 auto(템플릿 자동감지). ""이면 플래그 생략.
         reasoning = self._config.get("local_reasoning", "off")
-        if reasoning in ("off", "on"):
+        if reasoning in ("off", "on", "auto"):
             cmd += ["--reasoning", reasoning]
 
         self._local_process = subprocess.Popen(

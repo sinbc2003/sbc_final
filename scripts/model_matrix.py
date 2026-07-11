@@ -36,17 +36,26 @@ def _start_server(gguf: str, reasoning: str = "off") -> subprocess.Popen:
     _kill_server()
     cmd = [LLAMA_BIN, "-m", gguf, "--host", "127.0.0.1", "--port", str(PORT),
            "-c", "8192", "-np", "1", "-ngl", "99", "--jinja"]
-    if reasoning in ("off", "on"):
+    # llama.cpp --reasoning는 on|off|auto만. 비사고 모델은 auto(템플릿 자동감지).
+    if reasoning in ("off", "on", "auto"):
         cmd += ["--reasoning", reasoning]
-    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    logf = ROOT / "scripts" / "_matrix_llama.log"
+    fh = open(logf, "w", encoding="utf-8", errors="replace")
+    p = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT)
     import requests
-    for _ in range(60):
+    for _ in range(90):
+        rc = p.poll()
+        if rc is not None:
+            fh.flush()
+            tail = logf.read_text("utf-8", errors="replace")[-400:]
+            raise RuntimeError(f"llama-server 프로세스 종료(rc={rc}): {tail}")
         try:
             if requests.get(f"http://127.0.0.1:{PORT}/health", timeout=2).ok:
                 return p
         except Exception:
-            time.sleep(1)
-    raise RuntimeError("llama-server 기동 실패")
+            pass
+        time.sleep(1)
+    raise RuntimeError("llama-server 기동 타임아웃(90s)")
 
 
 def _tok_per_s(gguf_name: str) -> float:
@@ -113,12 +122,12 @@ def main():
         name = parts[0]
         rest = spec[len(name) + 1:]
         reasoning = "off"
-        if rest.endswith(":off") or rest.endswith(":on") or rest.endswith(":none"):
+        if rest.endswith((":off", ":on", ":auto")):
             reasoning = rest.rsplit(":", 1)[1]
             path = rest.rsplit(":", 1)[0]
         else:
             path = rest
-        r_flag = "" if reasoning == "none" else reasoning
+        r_flag = reasoning
         gguf_name = Path(path).name
         print(f"\n{'='*60}\n[{name}] {gguf_name} (reasoning={reasoning})\n{'='*60}")
         try:

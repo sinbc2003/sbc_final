@@ -745,12 +745,42 @@ scratchpad 임시 테스트를 리포에 티어별 고정: `tests/{test_offline,
 - `_plan_grid_fill`: 표별 렌더+빈칸을 문자예산(7000) 내로 묶어 청크마다 그 청크 셀ID enum만 강제→절단 없이 전 셀 노출→병합. 공용 함수(run_form_assist·plan_hwpx_grid_fill 둘 다 사용, 프롬프트 중복 제거).
 - 검증: offline 300빈칸·11870자→2+청크·전 ID 노출, **멀티청크 gemma E2E**(렌더 9856자→2청크→각 청크 정확 채움 4/4), 소형 1청크 회귀 4/4.
 
+---
+
+## 23. 작업 기록 — 2026-07-11 (소형모델 일반화 — 하네스 model-agnostic 실증)
+
+> 사용자 방향: "gemma뿐 아니라 다른 소형모델로도 일반화." 4-에이전트 감사(agnostic 27/coupled 31/blocker 5)로 결합도 지도 → 코드 config화(A) → 벤치 매트릭스 도구(A2) → **타모델 실측(B)**.
+
+### 🎯 헤드라인: Qwen2.5-3B가 코드 수정 0으로 하네스 통과 — "하네스라서 된다" 실증
+**모델 × 능력 매트릭스** (`scripts/model_matrix.py`, RTX5080, provider=local·GGUF만 교체):
+| 모델 | 벤치495(명단파싱) | 그리드채움(가정통신문 4빈칸) | tok/s |
+|---|---|---|---|
+| gemma-3n E4B (4B) | **495/495 (100%)** | 4/4 | 60~134 |
+| gemma-3n E2B (2B) | **495/495 (100%)** | 4/4 | 106~231 |
+| **Qwen2.5-3B** | **491/495 (99.2%)** | 4/4 | 260 |
+| Phi-3.5-mini (3.8B) | 77/495 (15.6%) | 0/4 | 227 |
+
+**결론(일반화 경계)**: 하네스는 **한국어 능력 있는 소형 모델 패밀리 간에 일반화**된다(gemma≠Qwen 완전 다른 패밀리인데 둘 다 제품 품질). 단 **모델에 없는 한국어 능력을 하네스가 부여하진 못한다** — Phi(영어권)는 형식은 살렸으나 한국어 라벨↔값 의미매칭이 15.6%. 감사가 예측한 "형식=하네스, 값 의미=모델 한국어 능력"이 데이터로 확증됨.
+
+### A. 로컬 모델 선택 config화 (`1d713bb`) — blocker 5건, 하위호환
+감사 결론: 하네스는 이미 model-agnostic(--jinja 내장템플릿 + GBNF response_format이 llama.cpp 일반기능, gemma 토큰 0)인데 **GGUF 교체 knob이 죽어있었음**. settings.llm에 배포 knob(models_dirs/llama_server_bin/local_server_host·port/local_gpu_layers/local_reasoning/local_parallel) 신설 + 죽은 설정 3개 배선(local_model 우선소비·local_context_size 키오타·default_provider). `_find_local_model`(명시 우선→quant 폴백, §19 폴더격리 footgun 해소). 서버 플래그를 설정으로 조립(기본=gemma값). gemma 벤치495 회귀·offline 44/44.
+
+### A2. 벤치 --gguf + 신원 스탬프 + 매트릭스 러너 (`8e1e443`)
+benchmark에 `--gguf`(모델 지목)+결과에 {gguf,quant,size,elapsed} 스탬프+`benchmark_ledger.jsonl` 축적. `scripts/model_matrix.py`(GGUF 리스트→서버재기동→벤치+그리드+tok/s→표). `tests/test_edit.py`(편집 신뢰성 상시화, 감사 지적 — 모델 민감 축). SettingsManager(data_dir) 버그 수정.
+
+### B. 실측 발견 2건 (하드닝 반영)
+1. **`--reasoning` 인자값**: llama.cpp는 `on|off|auto`만(감사가 예측한 flag-spelling 취약점 실증). 매트릭스/config를 정합(`none`→`auto`, 비사고 모델은 auto 자동감지). ⚠️ 잘못된 값이면 서버 기동 자체가 실패 — 배포 시 llama.cpp 빌드별 인자 확인 필요.
+2. **GBNF 샘플러 Phi 비호환**: Phi-3.5는 json_schema 강제 시 `Failed to initialize samplers: empty grammar stack`(400)로 하드 크래시. 하네스의 형식-보장 기둥이 특정 토크나이저와 충돌. → **`_local_chat_completion`에 GBNF 실패 폴백 추가**: grammar/sampler 오류면 스키마를 프롬프트에 실어 소프트 강제로 재시도(하드 보장 상실, 크래시 방지). Phi 0/495→15.6%로 우아하게 강등. **모델 무관 하드닝** — 앞으로 GBNF 비호환 모델도 죽지 않고 돈다.
+
+### 실측 모델 위치 / 재현
+- Qwen: `D:\models\qwen\qwen2.5-3b-instruct-q4_k_m.gguf`(2GB, hf-mirror Qwen 공식). Phi: `D:\models\phi\Phi-3.5-mini-instruct-Q4_K_M.gguf`(2.3GB, bartowski). 둘 다 .gitignore 밖(리포 미포함).
+- 재현: `python scripts/model_matrix.py --models "name:path[:on|off|auto]" ...`. ledger/matrix 결과는 .gitignore.
+
 ### 남은 것 / 다음 후보
-- find 순회 전제(머리말/꼬리말 미간섭) 실문서 추가 확인, 중첩 표 문서 라이브.
-- E2B 편집 값 정확도(텍스트 변형 경향) — 스킬 few-shot 미세조정 또는 "새 텍스트는 지시된 문구 그대로" 규칙 후보.
-- Excel 라이브 채움(현재 파일 기반만, inline-ai는 xlwings 라이브), API 키 보안(평문→Credential Manager), training_logger(교사 수정 수집=LoRA 전제).
-- **배포 패키징(엔진 EXE+Tauri 번들+llama/GGUF 동봉) — LoRA급 대형 트랙**(§9 설계 있음).
-- **LoRA 증류(`GEMMA_LORA_GUIDE.md`) — 남은 최대 트랙**(생성 품질 상향·장문, RTX5080 본진. 원본 문서 위치는 사용자 확인 필요).
+- Qwen을 실전 배포 후보로 검토(한국어 99.2% + gemma보다 빠름). E2B 편집 값 정확도·find 머리말 전제·중첩표 라이브.
+- Excel 라이브 채움(파일기반만), API 키 보안(평문→Credential Manager), training_logger(교사 수정=LoRA 전제).
+- **배포 패키징(엔진 EXE+Tauri+GGUF 동봉) — 대형 트랙**(§9).
+- **LoRA 증류(`GEMMA_LORA_GUIDE.md`) — 최대 트랙**(생성 품질·장문, RTX5080 본진. 원본 문서 위치 사용자 확인 필요).
 
 ---
 

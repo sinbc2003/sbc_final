@@ -33,7 +33,7 @@ DEFAULT_SETTINGS = {
         "local_server_host": "127.0.0.1",
         "local_server_port": 8400,
         "local_gpu_layers": 99,      # -ngl (전체 오프로드=99, CPU-only는 0)
-        "local_reasoning": "off",    # 사고모델 토글: off | on | ""(플래그 생략)
+        "local_reasoning": "off",    # llama.cpp 추론: off|on|auto | ""(플래그 생략). 비사고 모델은 auto
         "local_parallel": 1,         # -np (8GB급 GPU는 1 권장)
     },
     "rag": {
