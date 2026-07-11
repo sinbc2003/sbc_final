@@ -697,10 +697,24 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **결론(배포)**: 8GB 구형 노트북(E2B)에서도 **양식 채우기·생성·채팅 채움 = 제품 품질**. 자유 편집 정밀도만 E4B(16GB급)와 차이 → 사양별 기능 안내 또는 편집 시 확인 UX 고려.
 - **환경 이슈 재발**: 한/글 CoCreateInstance "서버 실행 실패"가 gencache 초기화로도 안 풀림 → **hwp.exe를 subprocess로 먼저 실행해 콜드스타트를 COM 밖에서 치른 후 연결**(74s)이 확실한 처방. COM 서버 실체는 레지스트리 확인 결과 `Office 2020 HOffice110\bin\hwp.exe -Automation`.
 
+---
+
+## 20. 작업 기록 — 2026-07-11 (스킬 다이어트 + 블록선택 few-shot — 편집 신뢰성 개선)
+
+### 🎯 skills/hwp.md 재작성 (253→140줄) — "문법책" 본문 개편
+- **「block_id 선택 방법」 섹션 신설(최우선 배치)**: CVD의 `<번호>텍스트`/`<td 번호>` 형식 설명 + **미니 CVD → 올바른 액션** worked example 2개("제목 바꿔줘"→`<1>`에 제목 있음→block_id "1"). 소형 모델에게 블록 선택 *방법*을 가르치는 few-shot.
+- 다이어트: 액션 23종 계약·파라미터는 유지(envelope enum 정합)하되 설명 압축, 예시 5→3개(비현실적 "block 102를 바꿔줘" 예시 제거), 공문·디자인 규칙 압축.
+- **효과 실측(E2B, 편집 신뢰성 스위트 — trial마다 새 문서, 4명령+질문)**: 개편 전 1/2 → **개편 후 4/4 + 질문 정답** (제목/셀/본문문단 세 블록 유형 전부 정확 선택, 자발적 제목 서식까지).
+- **E4B 동일 스위트 3/4**: 셀값 편집 실패 원인 확정 — 모델 아닌 시스템: `"blockId 11 셀 위치 불일치"` = **HWPML 스캔 모드의 가상 좌표 문제(§5 잔여)**. 모델 선택은 유효했으나 HwpEditor가 좌표 불일치로 거부. → **다음 1순위: grid_live의 정렬 기법(그리드↔InitScan 텍스트 검산)을 HwpEditor 셀 편집 좌표 해석에 적용**하면 근본 해결.
+
+### 환경 노하우 (재발 대비 누적)
+- **같은 프로세스에서 EnsureDispatch 2회째 실패**("can not automate the makepy process") 사례: gencache 리셋으로도 안 풀림 → **COM 작업당 서브프로세스 분리 + 프로세스 전용 gen_py**(`win32com.__gen_path__`+`win32com.gen_py.__path__` 지정)가 확실. 테스트 헬퍼: scratchpad `hwp_op.py` 패턴.
+- 엔진 startup의 gencache 초기화가 동시 실행 중인 다른 파이썬 프로세스의 캐시를 깨뜨릴 수 있음(경합).
+
 ### 남은 것 / 다음 후보
-- skills/*.md 본문 다이어트(gemma 친화 재구성) — envelope+GBNF가 형식을 잡아주므로 우선순위 낮음. E2B 자유 편집 신뢰성이 동기라면 CVD 표현 개선/블록 few-shot이 후보.
-- find 순회의 전제: 한/글 find(Forward)가 머리말/꼬리말을 본문 흐름과 섞지 않는다 — 현재 테스트 범위에선 문제 없음, 머리말에 밑줄런 있는 실문서로 추가 확인 여지.
-- 중첩 표 문서 라이브(정렬 거부, 파일 경로 사용), HWPML block_id 편집 실행 신뢰성(§5 잔여), **LoRA 증류(`GEMMA_LORA_GUIDE.md`) — 남은 최대 트랙**(생성 품질 상향·장문, RTX5080 본진. 원본 문서 위치는 사용자 확인 필요).
+- **HWPML block_id 편집 좌표 캘리브레이션(§5 잔여) — 다음 1순위**: E4B 셀 편집 실패의 실원인. grid_live 정렬 기법을 HwpEditor에 적용(HWPML 블록↔InitScan 요소 텍스트 검산 매핑).
+- find 순회 전제(머리말/꼬리말 미간섭) 실문서 추가 확인, 중첩 표 문서 라이브.
+- **LoRA 증류(`GEMMA_LORA_GUIDE.md`) — 남은 최대 트랙**(생성 품질 상향·장문, RTX5080 본진. 원본 문서 위치는 사용자 확인 필요).
 
 ---
 
