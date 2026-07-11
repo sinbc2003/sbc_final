@@ -15,8 +15,8 @@ from common import ANON_DIR, ANON_REPORT, MD_DIR
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-# 알려진 실명(작성자 본인 등) — 전역 치환
-KNOWN_NAMES = ["신병철"]
+# 알려진 실명(작성자 본인·동료 기안자) — 전역 치환
+KNOWN_NAMES = ["신병철", "이가영"]
 
 # 이름 오탐 방지: 라벨 뒤 2~4자 한글이라도 이 단어면 치환 안 함
 NAME_STOPWORDS = {
