@@ -29,23 +29,17 @@ class LLMManager:
         """사용 가능한 모든 모델 목록."""
         models: list[dict[str, str]] = []
 
-        # 로컬 GGUF 모델 스캔
-        search_dirs: list[Path] = []
-        if self._models_dir:
-            search_dirs.append(self._models_dir / "base")
-        search_dirs.append(Path("C:/Users/sinbc/models/teacherflow"))
-        search_dirs.append(Path("D:/models/teacherflow"))
-        for d in search_dirs:
-            if not d.exists():
-                continue
-            for f in d.glob("*.gguf"):
-                models.append({
-                    "id": f"local/{f.name}",
-                    "name": f.name,
-                    "provider": "local",
-                    "path": str(f),
-                    "size_mb": str(round(f.stat().st_size / 1024 / 1024)),
-                })
+        # 로컬 GGUF 모델 스캔 (ROOT/models/base + 설정 models_dirs)
+        active = (self._config.get("local_model") or "").strip().lower()
+        for f in self._all_local_ggufs():
+            models.append({
+                "id": f"local/{f.name}",
+                "name": f.name,
+                "provider": "local",
+                "path": str(f),
+                "size_mb": str(round(f.stat().st_size / 1024 / 1024)),
+                "active": bool(active and active in f.name.lower()),
+            })
 
         # API 모델 (키 유무 표시, 전부 노출)
         has_openai = bool(self._config.get("openai_api_key"))
@@ -82,7 +76,7 @@ class LLMManager:
             provider = self._pick_provider()
         info: dict[str, str] = {"provider": provider}
         if provider == "local":
-            model = self._find_model("q4")
+            model = self._find_local_model()
             info["model"] = model.name if model else "(없음)"
         elif provider == "claude":
             info["model"] = "claude-sonnet-4-6"
@@ -319,6 +313,14 @@ class LLMManager:
 
     def _pick_provider(self) -> str:
         """사용 가능한 최적 provider 선택."""
+        # 배포자가 명시한 기본 provider 존중 (죽어있던 설정 배선)
+        forced = self._config.get("default_provider")
+        if forced and forced != "auto":
+            if forced == "local" and self._find_local_model():
+                return "local"
+            if forced in ("claude", "openai", "gemini") and self._config.get(f"{forced}_api_key"):
+                return forced
+            # 지정 provider가 불가하면 아래 폴백 체인으로
         # API 키가 있으면 API 우선 (Phase 1)
         if self._config.get("claude_api_key"):
             return "claude"
@@ -327,8 +329,7 @@ class LLMManager:
         if self._config.get("gemini_api_key"):
             return "gemini"
         # 로컬 모델 확인
-        model = self._find_model("q4")
-        if model:
+        if self._find_local_model():
             return "local"
         raise RuntimeError(
             "사용 가능한 LLM이 없습니다. "
@@ -339,7 +340,11 @@ class LLMManager:
         """llama-server 상태 확인, 미실행 시 자동 시작. server_url 반환."""
         import requests as _req
 
-        server_url = "http://127.0.0.1:8400"
+        host = self._config.get("local_server_host") or "127.0.0.1"
+        if host == "0.0.0.0":
+            host = "127.0.0.1"  # 클라이언트 접속은 루프백으로
+        port = self._config.get("local_server_port") or 8400
+        server_url = f"http://{host}:{port}"
         try:
             _req.get(f"{server_url}/health", timeout=2)
         except Exception:
@@ -418,43 +423,58 @@ class LLMManager:
         """
         return self._local_chat_completion(messages, max_tokens, temperature, json_schema)
 
-    def _start_llama_server(self):
-        """llama-server를 백그라운드로 시작."""
-        profile = get_memory_profile()
-        model_path = self._find_model(profile.recommended_quant)
-        if not model_path:
-            raise FileNotFoundError(
-                f"로컬 모델 없음 (권장: {profile.recommended_quant})"
-            )
-
-        server_bin = "llama-server"
+    def _find_llama_server_bin(self) -> str:
+        """llama-server 실행 파일 — 설정값 우선, 없으면 알려진 경로 탐색."""
+        configured = self._config.get("llama_server_bin")
+        if configured and Path(configured).exists():
+            return configured
         for candidate in [
             "C:/Users/sinbc/llama_cpp/llama-server.exe",
             "D:/models/llama_cpp/bin/llama-server.exe",
             "llama-server",
         ]:
             if Path(candidate).exists():
-                server_bin = candidate
-                break
+                return candidate
+        return "llama-server"  # PATH 폴백
 
-        # 컨텍스트 크기: 설정값(local_ctx) 우선, 없으면 메모리 프로필 권장값
-        ctx = profile.recommended_ctx
-        if self._config.get("local_ctx"):
-            ctx = int(self._config["local_ctx"])
+    def _local_ctx(self) -> int:
+        """컨텍스트 크기 — 설정값 우선(신·구 키 모두 수용), 없으면 메모리 프로필."""
+        for key in ("local_context_size", "local_ctx"):  # 구 키(local_ctx) 하위호환
+            v = self._config.get(key)
+            if v:  # 0/None/"" 이면 자동
+                return int(v)
+        return get_memory_profile().recommended_ctx
 
-        # 0.0.0.0 바인딩: goe 요약기(Mac1 cmd센터)가 Tailscale로 같은 서버를 공유.
-        # --jinja: 모델 내장 chat 템플릿 사용, --reasoning off: 사고모델 기본 비활성(속도).
-        # -np 1: 슬롯 1개. Arc 등 8GB급 GPU에서 다중 슬롯 KV캐시가 VRAM을 초과해
-        # Vulkan device-lost로 죽는 것을 방지 (구형 노트북 배포 안정성).
+    def _start_llama_server(self):
+        """llama-server를 백그라운드로 시작 — 배포 설정(모델/포트/GPU/추론)으로 조립."""
+        model_path = self._find_local_model()
+        if not model_path:
+            raise FileNotFoundError(
+                "로컬 GGUF 모델을 찾지 못했습니다. models/base/ 또는 설정 models_dirs에 두거나 "
+                "settings.llm.local_model을 지정하세요."
+            )
+        self._local_model = Path(model_path).name  # 오류 메시지·로깅에 실제 모델명
+
+        host = self._config.get("local_server_host") or "0.0.0.0"
+        port = str(self._config.get("local_server_port") or 8400)
+        ngl = str(self._config.get("local_gpu_layers", 99))
+        npar = str(self._config.get("local_parallel", 1))
+
+        # --jinja: 모델 내장 chat 템플릿(모델 무관). -np: 슬롯 수(8GB GPU는 1로 VRAM 보호).
         cmd = [
-            server_bin,
+            self._find_llama_server_bin(),
             "-m", str(model_path),
-            "--host", "0.0.0.0", "--port", "8400",
-            "-c", str(ctx),
-            "-np", "1",
-            "-ngl", "99",
-            "--jinja", "--reasoning", "off",
+            "--host", host, "--port", port,
+            "-c", str(self._local_ctx()),
+            "-np", npar,
+            "-ngl", ngl,
+            "--jinja",
         ]
+        # 추론 토글: 사고모델(gemma-4/Qwen3)만 off로 content 확보. ""이면 플래그 생략.
+        reasoning = self._config.get("local_reasoning", "off")
+        if reasoning in ("off", "on"):
+            cmd += ["--reasoning", reasoning]
+
         self._local_process = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
@@ -509,25 +529,55 @@ class LLMManager:
         )
         return response.text
 
-    def _find_model(self, quant: str) -> Path | None:
-        """models/base/ 및 추가 경로에서 모델 찾기."""
-        search_dirs: list[Path] = []
+    def _search_dirs(self) -> list[Path]:
+        """GGUF 탐색 경로 — ROOT/models/base + 설정 models_dirs + 레거시 기본값."""
+        dirs: list[Path] = []
         if self._models_dir:
-            search_dirs.append(self._models_dir / "base")
-        # 사용자 홈 모델 경로 + D드라이브 모델 경로 (C: 공간 부족 대비)
-        search_dirs.append(Path("C:/Users/sinbc/models/teacherflow"))
-        search_dirs.append(Path("D:/models/teacherflow"))
+            dirs.append(self._models_dir / "base")
+        for d in (self._config.get("models_dirs") or []):
+            dirs.append(Path(d))
+        # 레거시 기본값(이 장비 배포 경로) — 설정이 없을 때만 유효
+        dirs.append(Path("C:/Users/sinbc/models/teacherflow"))
+        dirs.append(Path("D:/models/teacherflow"))
+        return dirs
 
-        q_lower = quant.lower()
-        all_ggufs: list[Path] = []
-        for d in search_dirs:
+    def _all_local_ggufs(self) -> list[Path]:
+        seen: set = set()
+        out: list[Path] = []
+        for d in self._search_dirs():
             if not d.exists():
                 continue
-            for f in d.glob("*.gguf"):
-                if q_lower in f.name.lower():
+            for f in sorted(d.glob("*.gguf")):
+                if f.name not in seen:
+                    seen.add(f.name)
+                    out.append(f)
+        return out
+
+    def _find_local_model(self) -> Path | None:
+        """구동할 로컬 GGUF 결정.
+
+        우선순위: 설정 local_model(파일명 부분일치) > 메모리 프로필 quant 매칭 >
+        단일 GGUF면 그것 > 여러 개면 첫 번째(경고). '어느 모델' knob이 살아있게 배선.
+        """
+        ggufs = self._all_local_ggufs()
+        if not ggufs:
+            return None
+        wanted = (self._config.get("local_model") or "").strip().lower()
+        if wanted:
+            for f in ggufs:
+                if wanted in f.name.lower():
                     return f
-                all_ggufs.append(f)
-        return all_ggufs[0] if all_ggufs else None
+            # 명시했는데 없으면 자동선택으로 폴백(경고는 호출부 로깅에 위임)
+        return self._find_model(get_memory_profile().recommended_quant)
+
+    def _find_model(self, quant: str) -> Path | None:
+        """quant 부분일치로 GGUF 찾기 (없으면 첫 번째). 자동선택 폴백용."""
+        q_lower = quant.lower()
+        ggufs = self._all_local_ggufs()
+        for f in ggufs:
+            if q_lower in f.name.lower():
+                return f
+        return ggufs[0] if ggufs else None
 
     def _find_lora(self, lora_name: str) -> Path | None:
         """models/loras/에서 LoRA 어댑터 찾기."""

@@ -23,10 +23,18 @@ DEFAULT_SETTINGS = {
     },
     "llm": {
         "default_provider": "auto",  # auto | local | claude | openai | gemini
-        "local_model": "",  # GGUF 파일명 (auto면 메모리 기반 자동 선택)
-        "local_context_size": 0,  # 0 = 자동
+        "local_model": "",  # GGUF 파일명(부분일치 가능). 빈값이면 quant 자동 선택
+        "local_context_size": 0,  # 0 = 자동(메모리 프로필)
         "default_temperature": 0.7,
         "default_max_tokens": 2048,
+        # ── 로컬 런타임(llama-server) 배포 설정 — 다른 GGUF/장비로 일반화 ──
+        "models_dirs": [],           # 추가 GGUF 탐색 경로(ROOT/models/base는 항상 포함)
+        "llama_server_bin": "",      # llama-server 실행 파일 경로(빈값이면 자동 탐색)
+        "local_server_host": "127.0.0.1",
+        "local_server_port": 8400,
+        "local_gpu_layers": 99,      # -ngl (전체 오프로드=99, CPU-only는 0)
+        "local_reasoning": "off",    # 사고모델 토글: off | on | ""(플래그 생략)
+        "local_parallel": 1,         # -np (8GB급 GPU는 1 권장)
     },
     "rag": {
         "enabled": False,
