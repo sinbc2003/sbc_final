@@ -711,9 +711,27 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **같은 프로세스에서 EnsureDispatch 2회째 실패**("can not automate the makepy process") 사례: gencache 리셋으로도 안 풀림 → **COM 작업당 서브프로세스 분리 + 프로세스 전용 gen_py**(`win32com.__gen_path__`+`win32com.gen_py.__path__` 지정)가 확실. 테스트 헬퍼: scratchpad `hwp_op.py` 패턴.
 - 엔진 startup의 gencache 초기화가 동시 실행 중인 다른 파이썬 프로세스의 캐시를 깨뜨릴 수 있음(경합).
 
+---
+
+## 21. 작업 기록 — 2026-07-11 (HWPML 셀 좌표 캘리브레이션 — §5 gap 편집판 종결 ✅)
+
+### 🎯 "blockId 셀 위치 불일치" 근본 해결
+**HWPML 블록 구조의 실체(진단 덤프로 확정)**: 셀 = **빈 td 블록 + 셀 내용 문단 블록(들)**이 같은 가상 list(position[0])를 공유. CVD에 노출되고 LLM이 고르는 것은 **내용 블록**(예: `<11>국립과학관`, type=text!)인데 좌표가 가상이라 set_pos 실패 → "셀 위치 불일치".
+
+**해법 — 셀 그룹 캘리브레이션** (grid_live 정렬 원리 재사용):
+- `DocumentScanner.raw_scan()` 신설: InitScan 원시 순회(실좌표, bench 1126셀 실증 패턴).
+- `BlockManager.calibrate_with_scan(elements)`: InitScan 셀(list_id 최초등장 순) ↔ HWPML td 블록(ID 순=문서 순) 1:1 + **그룹 내용 텍스트 검산**(공백무시) → 통과 시 그룹(td+내용 문단) **전체** position을 실좌표로 교체 + `Block.calibrated` 마킹. 셀 수 불일치·검산 실패는 기존 동작 유지(fail-safe).
+- `HwpEditor._move_to_block`: calibrated면 set_pos 우선(expect_cell 시 is_cell 확인), 실패 시 기존 우회.
+- 배선 3곳: `controller.extract_cvd`(HWPML 성공 후), `editor._rescan_if_needed`, `routes/hwp._do_cvd`.
+
+### 검증
+- 단위: 셀그룹 캘리브레이션(내용 블록 실좌표+마킹, 본문 무변경, 셀수 불일치 중단).
+- **E4B 편집 신뢰성 스위트: 3/4 → 4/4** (실패하던 replace_cell_content 성공, 로그 "셀 좌표 캘리브레이션: 6/6셀(12블록)").
+- E2B 동일 스위트 3/4: **셀 편집 성공**(캘리브레이션 효과), 잔여 1실패는 실행 성공·문서 불일치 = 모델이 제목 텍스트를 변형해 넣은 2B 품질 편차(시스템 아님).
+
 ### 남은 것 / 다음 후보
-- **HWPML block_id 편집 좌표 캘리브레이션(§5 잔여) — 다음 1순위**: E4B 셀 편집 실패의 실원인. grid_live 정렬 기법을 HwpEditor에 적용(HWPML 블록↔InitScan 요소 텍스트 검산 매핑).
 - find 순회 전제(머리말/꼬리말 미간섭) 실문서 추가 확인, 중첩 표 문서 라이브.
+- E2B 편집 값 정확도(텍스트 변형 경향) — 스킬 few-shot 미세조정 또는 "새 텍스트는 지시된 문구 그대로" 규칙 후보.
 - **LoRA 증류(`GEMMA_LORA_GUIDE.md`) — 남은 최대 트랙**(생성 품질 상향·장문, RTX5080 본진. 원본 문서 위치는 사용자 확인 필요).
 
 ---

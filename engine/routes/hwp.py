@@ -63,6 +63,10 @@ async def hwp_cvd(mode: str = "auto"):
                 style_lookup = hwpml_result["style_lookup"]
                 bm = BlockManager()
                 bm.initialize_from_blocks(blocks, id_to_pos)
+                try:
+                    bm.calibrate_with_scan(scanner.raw_scan())
+                except Exception:
+                    pass
                 file_name = ""
                 try:
                     file_name = hwp.FileName or ""

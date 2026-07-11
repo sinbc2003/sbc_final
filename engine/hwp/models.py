@@ -45,6 +45,8 @@ class Block:
     charshape_id: int = 0
     parashape_id: int = 0
     outline_level: int = 0
+    # position이 InitScan 실좌표로 캘리브레이션됨 (HWPML 가상 좌표 아님)
+    calibrated: bool = False
 
     @property
     def list_pos(self) -> int:

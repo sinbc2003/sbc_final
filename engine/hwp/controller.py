@@ -233,6 +233,14 @@ class HwpController:
                         # BlockManager 초기화 (HWPML 모드)
                         self._block_manager.initialize_from_blocks(blocks, id_to_pos)
 
+                        # td 좌표 캘리브레이션 — HWPML 가상 좌표를 InitScan
+                        # 실좌표로 교체 (편집 set_pos 신뢰성, §5 gap 해소)
+                        try:
+                            raw = self._scanner.raw_scan()
+                            self._block_manager.calibrate_with_scan(raw)
+                        except Exception as e:
+                            logger.warning(f"td 캘리브레이션 건너뜀: {e}")
+
                         # CVD 빌더로 고품질 CVD 생성
                         file_name = ""
                         try:

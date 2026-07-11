@@ -56,6 +56,10 @@ class HwpEditor:
                     self.bm.initialize_from_blocks(
                         hwpml_result["blocks"], hwpml_result["id_to_pos"]
                     )
+                    try:
+                        self.bm.calibrate_with_scan(scanner.raw_scan())
+                    except Exception as e:
+                        logger.warning(f"리스캔 td 캘리브레이션 건너뜀: {e}")
                     self._needs_rescan = False
                     logger.info(f"HWPML 리스캔 완료: {len(hwpml_result['blocks'])}개 블록")
                     return
@@ -76,7 +80,17 @@ class HwpEditor:
             return {"isSuccess": False, "message": f"blockId {block_id} not found"}
 
         logger.debug(f"_move_to_block({block_id}): type={block.block_type}, table={block.table_idx}, "
-                     f"seq={block.cell_seq}, pos={block.position}")
+                     f"seq={block.cell_seq}, pos={block.position}, cal={block.calibrated}")
+
+        # 캘리브레이션된 실좌표가 있으면 set_pos가 가장 정확 (InitScan 검산 통과)
+        if block.calibrated:
+            try:
+                if self.hwp.set_pos(*block.position) and (
+                        not expect_cell or self.hwp.is_cell()):
+                    return None  # 성공
+                logger.warning(f"_move_to_block({block_id}): 캘리브레이션 좌표 실패 — 우회 탐색")
+            except Exception as e:
+                logger.warning(f"_move_to_block({block_id}): 캘리브레이션 set_pos 예외: {e}")
 
         # td 블록이고 table_idx/cell_seq가 있으면 순서 기반 탐색
         if block.block_type == "td" and block.table_idx is not None and block.cell_seq is not None:

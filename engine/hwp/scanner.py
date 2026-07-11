@@ -40,6 +40,49 @@ class DocumentScanner:
         self.hwp = hwp
         self._last_hwpml_data: Optional[dict] = None  # HWPML 스캔 캐시
 
+    def raw_scan(self, timeout: float = 15.0) -> List[dict]:
+        """InitScan 원시 순회 — 실제 COM 좌표를 가진 요소 목록.
+
+        HWPML 가상 좌표 캘리브레이션용(BlockManager.calibrate_with_scan).
+        form_assist.scan_hwp_structure와 동일 패턴 (bench 1126셀 정렬 실증 방식).
+        """
+        import time as _time
+
+        hwp = self.hwp
+        elements: List[dict] = []
+        try:
+            hwp.MoveDocBegin()
+            hwp.init_scan(option=4, range=0x0077)
+            prev_pos = None
+            start = _time.monotonic()
+            for _ in range(20000):
+                if _time.monotonic() - start > timeout:
+                    logger.warning(f"raw_scan 타임아웃 ({timeout:.0f}s)")
+                    break
+                state, text = hwp.get_text()
+                if state <= 1:
+                    break
+                hwp.move_pos(201)
+                pos = hwp.get_pos()
+                clean = (text or "").replace("\r\n", "").replace("\r", "")
+                if prev_pos == pos and not clean.strip():
+                    continue
+                prev_pos = pos
+                elements.append({
+                    "type": "td" if pos[0] > 0 else "text",
+                    "text": clean,
+                    "pos": list(pos),
+                    "list_id": pos[0],
+                })
+            hwp.release_scan()
+        except Exception as e:
+            logger.warning(f"raw_scan 실패: {e}")
+            try:
+                hwp.release_scan()
+            except Exception:
+                pass
+        return elements
+
     def scan_hwpml(self) -> Optional[dict]:
         """HWPML2X로 저장 → 파싱 → 블록 리스트 반환.
 

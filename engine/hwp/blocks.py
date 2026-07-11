@@ -108,6 +108,80 @@ class BlockManager:
             if tg is not None:
                 self._table_groups.setdefault(tg, []).append(bid)
 
+    def calibrate_with_scan(self, elements: List[dict]) -> dict:
+        """HWPML 가상 좌표를 InitScan 실좌표로 캘리브레이션 — 셀 그룹 단위.
+
+        원리(grid_live 정렬과 동일, bench 1126셀 실증): InitScan 셀(list_id
+        최초등장 순)과 HWPML td 블록(블록ID 순 = 문서 순)은 같은 문서 내부
+        순서다.
+
+        HWPML 구조: 셀 = 빈 td 블록 + 셀 내용 문단 블록(들)이 **같은 가상
+        list(position[0])를 공유**. LLM이 CVD에서 고르는 것은 내용 블록이므로,
+        검산(그룹 내용 텍스트 ↔ 스캔 셀 텍스트, 공백 무시)을 통과한 셀 그룹의
+        **모든 블록**을 스캔 셀 실좌표로 교체 + calibrated 마킹 →
+        HwpEditor set_pos가 신뢰 가능("셀 위치 불일치" 해소).
+        표 밖 문단 블록은 건드리지 않음.
+        """
+        stats = {"scan_cells": 0, "td_blocks": 0, "calibrated_cells": 0,
+                 "calibrated_blocks": 0, "mismatched": 0}
+        if self._scan_mode != "hwpml":
+            return stats
+
+        def norm(s: str) -> str:
+            return "".join((s or "").split())
+
+        def _bid(b) -> int:
+            return int(b.id) if str(b.id).isdigit() else 0
+
+        # InitScan 셀: list_id 최초등장 순서로 병합 (grid_live.scan_cells_in_order와 동일)
+        seen: Dict[int, dict] = {}
+        order: List[int] = []
+        for e in elements:
+            if e.get("type") != "td":
+                continue
+            lid = e.get("list_id")
+            if lid not in seen:
+                seen[lid] = {"texts": [], "pos": e["pos"]}
+                order.append(lid)
+            t = (e.get("text") or "").strip()
+            if t:
+                seen[lid]["texts"].append(t)
+        scells = [(norm(" ".join(seen[lid]["texts"])), seen[lid]["pos"]) for lid in order]
+
+        # 가상 list(position[0]) → 그 셀의 블록 그룹 (td + 내용 문단)
+        td_blocks = sorted((b for b in self.blocks.values() if b.block_type == "td"),
+                           key=_bid)
+        groups: Dict[int, List] = {}
+        td_vlists = {b.position[0] for b in td_blocks}
+        for b in self.blocks.values():
+            vl = b.position[0]
+            if vl in td_vlists:
+                groups.setdefault(vl, []).append(b)
+
+        stats["scan_cells"] = len(scells)
+        stats["td_blocks"] = len(td_blocks)
+
+        if not scells or len(scells) != len(td_blocks):
+            logger.warning(f"캘리브레이션 중단: 셀 수 불일치 (스캔 {len(scells)} vs 블록 {len(td_blocks)})")
+            return stats
+
+        for td_block, (stext, pos) in zip(td_blocks, scells):
+            group = sorted(groups.get(td_block.position[0], [td_block]), key=_bid)
+            content = norm("".join(b.text for b in group if b.block_type != "td"))
+            if content == stext:
+                for b in group:
+                    b.position = tuple(pos)
+                    b.calibrated = True
+                    stats["calibrated_blocks"] += 1
+                stats["calibrated_cells"] += 1
+            else:
+                stats["mismatched"] += 1
+
+        logger.info(f"셀 좌표 캘리브레이션: {stats['calibrated_cells']}/{len(td_blocks)}셀 "
+                    f"({stats['calibrated_blocks']}블록)"
+                    + (f", 불일치 {stats['mismatched']}" if stats["mismatched"] else ""))
+        return stats
+
     # ── 삽입 오프셋 추적 ──
 
     def record_insertion(self, block_id: str, para_count: int = 1):
