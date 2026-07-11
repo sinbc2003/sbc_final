@@ -109,7 +109,14 @@ def main() -> int:
 
     print(f"torch {torch.__version__}, GPU: {torch.cuda.get_device_name(0)}")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    import transformers
+    tf_major = int(transformers.__version__.split(".")[0])
+    # tf5: torch_dtype 무시(FP32 스필) → dtype. tf4: dtype 미지원 → torch_dtype.
+    dtype_kw = ({"dtype": torch.bfloat16} if tf_major >= 5
+                else {"torch_dtype": torch.bfloat16})
+
+    tokenizer = AutoTokenizer.from_pretrained(args.model,
+                                              trust_remote_code=True)
     # gemma-3n AltUp은 학습 중 coef weight를 clamp_(float in-place)함 —
     # 4bit(uint8) 양자화되면 "Float can't be cast to unsigned char" 크래시.
     # altup/laurel은 초소형 Linear라 제외 비용도 없음.
@@ -120,11 +127,40 @@ def main() -> int:
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
         llm_int8_skip_modules=[".*altup.*", ".*laurel.*", "lm_head"])
-    # tf 5.x: torch_dtype는 deprecated·무시됨 → dtype 사용.
-    # (무시되면 비양자화 파트가 FP32로 올라가 VRAM 스필 — RTX5080 실측 원인)
     model = AutoModelForCausalLM.from_pretrained(
         args.model, quantization_config=bnb, device_map={"": 0},
-        dtype=torch.bfloat16, trust_remote_code=True)
+        trust_remote_code=True, **dtype_kw)
+
+    # EXAONE 3.5 원격코드(tf5 포팅 불완전)가 get_input_embeddings 미구현 —
+    # peft tied-modules 검사가 호출하므로 토큰 임베딩(wte)으로 인스턴스 패치.
+    try:
+        model.get_input_embeddings()
+    except NotImplementedError:
+        import torch.nn as nn
+        emb = next(m for n, m in model.named_modules()
+                   if isinstance(m, nn.Embedding)
+                   and ("wte" in n or "embed_tokens" in n))
+        model.get_input_embeddings = lambda: emb
+        base = getattr(model, "transformer", None) or getattr(model, "model", None)
+        if base is not None:
+            base.get_input_embeddings = lambda: emb
+        print(f"get_input_embeddings 패치: {type(emb).__name__}{tuple(emb.weight.shape)}")
+
+    # LG EXAONE tf5 포팅이 구 시그니처(input_embeds)로 create_causal_mask 호출 —
+    # tf 5.13은 inputs_embeds. 로드된 원격 모듈의 참조를 심으로 교체.
+    import inspect
+    import sys as _sys
+    _mod = _sys.modules.get(type(model).__module__)
+    if _mod is not None and hasattr(_mod, "create_causal_mask"):
+        _orig = _mod.create_causal_mask
+        if "input_embeds" not in inspect.signature(_orig).parameters:
+            def _ccm_shim(*a, **kw):
+                if "input_embeds" in kw:
+                    kw["inputs_embeds"] = kw.pop("input_embeds")
+                return _orig(*a, **kw)
+            _mod.create_causal_mask = _ccm_shim
+            print("create_causal_mask 심 적용 (input_embeds→inputs_embeds)")
+
     model = prepare_model_for_kbit_training(model)
     model.config.use_cache = False
 
