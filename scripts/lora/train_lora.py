@@ -113,11 +113,13 @@ def main() -> int:
     # gemma-3n AltUp은 학습 중 coef weight를 clamp_(float in-place)함 —
     # 4bit(uint8) 양자화되면 "Float can't be cast to unsigned char" 크래시.
     # altup/laurel은 초소형 Linear라 제외 비용도 없음.
+    # ⚠ tf 5.x는 skip 매칭이 접두사/정규식(re.match)/접미사만 — 경로 중간
+    # 토큰은 ".*이름.*" 정규식으로 써야 매칭됨(quantizers_utils.should_convert_module).
     bnb = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
-        llm_int8_skip_modules=["altup", "laurel", "lm_head"])
+        llm_int8_skip_modules=[".*altup.*", ".*laurel.*", "lm_head"])
     model = AutoModelForCausalLM.from_pretrained(
         args.model, quantization_config=bnb, device_map={"": 0},
         torch_dtype=torch.bfloat16, trust_remote_code=True)
