@@ -199,9 +199,55 @@ def t_verify_retry():
     check("통합: 값 반영", "김철수" in vals and "3반" in vals)
 
 
+# ── 8. 대형 양식 표 단위 청킹 (12000자 절단 제거) ──
+def t_chunking():
+    print("[table-chunk (대형 양식)]")
+    wd = workdir("off_chunk_")
+    # 큰 표 여러 개 → 그리드 렌더가 청크 예산 초과하도록 (긴 라벨 + 다수 행)
+    rows = "\n".join(f"| 세부평가항목 및 배점 기준 {i:02d} |  |" for i in range(1, 61))
+    one = f"| 구분 | 평가내용 |\n| --- | --- |\n{rows}\n"
+    md = "# 대형 심사표\n\n" + "\n\n".join([one] * 5)
+    form = md_to_hwpx(md, "big", wd)
+    doc = parse_hwpx(form)
+    fields = [f for f in extract_blank_fields(doc, include_filled=True)
+              if f.get("value_type") == "text" and fa._is_fillable(f)]
+    ids = [f["id"] for f in fields]
+    check(f"빈칸 다수({len(ids)}개)", len(ids) >= 100)
+    # 표별 렌더 합산이 청크 예산 초과 = 단일 프롬프트면 절단됐을 상황(청킹 필요)
+    combined = sum(len(g.render(mark_blanks=True)) for g in doc.tables)
+    check(f"단일 렌더면 절단({combined}자 > {fa._GRID_CHUNK_CHARS})", combined > fa._GRID_CHUNK_CHARS)
+
+    # 목킹 LLM: 청크별 호출. 각 청크 enum의 id만 채우고, enum 합집합=전체 id 확인
+    from engine import deps
+    import json as _j
+    seen = {"enum_union": set(), "calls": 0}
+
+    class ChunkLLM:
+        def _pick_provider(self):
+            return "local"
+
+        def generate_chat(self, messages, *, max_tokens, temperature, provider, model,
+                          json_schema=None):
+            enum = json_schema["properties"]["채움"]["items"]["properties"]["id"]["enum"]
+            seen["enum_union"].update(enum)
+            seen["calls"] += 1
+            # 청크 렌더에 잘린 …(생략) 없어야 = 이 청크 id 전부 프롬프트에 노출
+            content = messages[-1]["content"]
+            for cid in enum:
+                assert cid in content, f"셀ID {cid}가 청크 프롬프트에서 잘림!"
+            return _j.dumps({"채움": [{"id": e, "값": f"v{e[-3:]}"} for e in enum]},
+                            ensure_ascii=False)
+
+    deps.llm_manager = ChunkLLM()
+    plan = fa._plan_grid_fill(doc, fields, "", "지시", "", "local", "", {}, lambda m: None)
+    check("2+청크 분할", seen["calls"] >= 2)
+    check("모든 셀ID enum 노출(절단 없음)", seen["enum_union"] == set(ids))
+    check("전 셀 채움 계획", len(plan) == len(ids))
+
+
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
-               t_grid_roundtrip, t_verify_retry):
+               t_grid_roundtrip, t_verify_retry, t_chunking):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

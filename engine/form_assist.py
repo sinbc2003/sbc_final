@@ -176,26 +176,7 @@ def run_form_assist(
 반드시 JSON으로만 답하세요: {{"셀참조": "값", ...}}
 빈칸 목록의 cell_ref를 키로 사용하세요. 설명 없이 JSON만 반환.
 """
-    elif fill_mode == "hwpx_grid":
-        grid_render = grid_doc.render_text(mark_blanks=True)
-        if len(grid_render) > 12000:
-            grid_render = grid_render[:12000] + "\n…(생략)"
-        blank_list = _render_blank_list(grid_fields)
-        prompt += f"""
-## 출력 양식: {output_template['name']}
-### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)
-{grid_render}
-
-### 채워야 할 빈칸 ({len(grid_fields)}개)
-{blank_list}
-{range_note}
-위 참고 문서와 교사 지시를 바탕으로, 각 빈칸에 알맞은 값을 넣으세요.
-- 빈칸 라벨(행 이름 × 열 이름)의 의미에 맞는 값을 채우세요.
-- 값을 알 수 없거나 채울 필요가 없는 빈칸은 생략하세요.
-- 이미 의미 있는 값이 들어 있는 칸은 그대로 두세요(비어 있을 때만 채움).
-- 값에는 빈칸에 들어갈 내용만 쓰세요 — 빈칸 주변에 이미 있는 라벨이나 문구("(인)", "(서명)", "성명:" 등)를 반복하지 마세요.
-- id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.
-"""
+    # hwpx_grid는 표 단위 청킹(_plan_grid_fill)으로 별도 처리 — 프롬프트 불필요
     elif fill_mode == "hwp_com":
         cell_desc = _format_hwp_elements(hwp_elements)
         prompt += f"""
@@ -226,11 +207,17 @@ def run_form_assist(
 마크다운 형식으로 답하세요.
 """
 
-    # ── 5. LLM 호출 (양식이면 json_schema 강제) ──
+    # ── 5. LLM 호출 (양식이면 json_schema 강제; hwpx_grid는 청킹 계획) ──
     progress(0.6)
-    llm_response = _call_llm(prompt, llm_provider, llm_model, llm_config or {},
-                             json_schema=json_schema)
-    log(f"AI 응답: {len(llm_response)}자")
+    if fill_mode == "hwpx_grid":
+        grid_fill_data = _plan_grid_fill(grid_doc, grid_fields, context_text, instruction,
+                                         page_range, llm_provider, llm_model,
+                                         llm_config or {}, log)
+        llm_response = ""  # 청크별 내부 처리 (단일 응답 없음)
+    else:
+        llm_response = _call_llm(prompt, llm_provider, llm_model, llm_config or {},
+                                 json_schema=json_schema)
+        log(f"AI 응답: {len(llm_response)}자")
 
     # ── 6. 저장 경로 + 모드별 주입 ──
     progress(0.8)
@@ -242,7 +229,7 @@ def run_form_assist(
             from engine.hwpml.hwpx_grid import (
                 ID_RE, BODY_ID_RE, fill_hwpx_cells, relocate_below_markers,
             )
-            fill_data = _parse_fill_response(llm_response, blank_ids)
+            fill_data = grid_fill_data
             log(f"그리드 채우기: {len(fill_data)}개 항목")
             if fill_data:
                 # 셀ID(그리드)/본문블랭크ID/누름틀명(정확일치) 3-way 분리 — 누름틀은
@@ -278,6 +265,8 @@ def run_form_assist(
                             verified, missing = _verify_hwpx_fill(out_path, fill_data)
                     result["verified"] = len(verified)
                     result["missing"] = list(missing)
+                    result["text"] = (f"{len(verified)}개 빈칸을 채웠습니다."
+                                      + (f" ({len(missing)}개는 확인이 필요합니다)" if missing else ""))
                     log(f"검증 완료: {len(verified)}/{len(fill_data)} 반영"
                         + (f", 미반영 {len(missing)}개: {list(missing)[:5]}" if missing else ""))
                 else:
@@ -374,42 +363,11 @@ def plan_hwpx_grid_fill(
         return {"fill_data": {}, "grid_doc": grid_doc, "blank_ids": set()}
 
     blank_ids = {f["id"] for f in grid_fields}
-    json_schema = _build_fill_schema(sorted(blank_ids))
     _log(f"양식 그리드: 표 {len(grid_doc.tables)}개, 채울 빈칸 {len(grid_fields)}개")
 
-    grid_render = grid_doc.render_text(mark_blanks=True)
-    if len(grid_render) > 12000:
-        grid_render = grid_render[:12000] + "\n…(생략)"
-
-    prompt = f"""당신은 교사의 공문 양식을 채우는 비서입니다.
-
-## 참고 문서
-{context_text if context_text else "(참고 문서 없음)"}
-
-## 교사 지시사항
-{instruction if instruction else "(없음)"}
-
-## 출력 양식: {Path(form_path).name}
-### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)
-{grid_render}
-
-### 채워야 할 빈칸 ({len(grid_fields)}개)
-{_render_blank_list(grid_fields)}
-
-위 참고 문서와 교사 지시를 바탕으로, 각 빈칸에 알맞은 값을 넣으세요.
-- 빈칸 라벨(행 이름 × 열 이름)의 의미에 맞는 값을 채우세요.
-- 값을 알 수 없거나 채울 필요가 없는 빈칸은 생략하세요.
-- 이미 의미 있는 값이 들어 있는 칸은 그대로 두세요(비어 있을 때만 채움).
-- 값에는 빈칸에 들어갈 내용만 쓰세요 — 빈칸 주변에 이미 있는 라벨이나 문구("(인)", "(서명)", "성명:" 등)를 반복하지 마세요.
-- id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.
-"""
-    llm_response = _call_llm(prompt, llm_provider, llm_model, llm_config or {},
-                             json_schema=json_schema)
-    _log(f"AI 응답: {len(llm_response)}자")
-    fill_data = _parse_fill_response(llm_response, blank_ids)
-    _log(f"배치 결정: {len(fill_data)}개 항목")
-    return {"fill_data": fill_data, "grid_doc": grid_doc, "blank_ids": blank_ids,
-            "raw_response": llm_response}
+    fill_data = _plan_grid_fill(grid_doc, grid_fields, context_text, instruction,
+                                "", llm_provider, llm_model, llm_config or {}, _log)
+    return {"fill_data": fill_data, "grid_doc": grid_doc, "blank_ids": blank_ids}
 
 
 # ── 라이브 HWP 채우기 ──
@@ -743,6 +701,91 @@ def _parse_fill_response(text: str, valid_ids=None) -> dict:
     if valid is not None:
         out = {k: v for k, v in out.items() if k in valid}
     return out
+
+
+# 청크 하나의 그리드 렌더 문자 예산 (소형 모델 ctx 8192 안전 여유)
+_GRID_CHUNK_CHARS = 7000
+
+
+def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction: str,
+                    page_range: str, provider: str, model: str, config: dict, log) -> dict:
+    """그리드 빈칸 채움 계획 — 표 단위 청킹으로 대형 양식의 렌더 절단을 방지.
+
+    작은 양식은 1청크(기존 동작과 동일). 표별 렌더+빈칸을 문자 예산 내로 묶어
+    청크마다 그 청크의 셀ID enum만 강제 → 수백 빈칸도 절단 없이 전부 노출.
+    본문 밑줄·누름틀은 라벨 목록만으로 마지막 청크에 싣는다(렌더 불필요).
+    반환: 병합된 {id:값}.
+    """
+    from engine.hwpml.hwpx_grid import ID_RE
+
+    # 필드를 표별 / 기타(본문·누름틀)로 분류
+    by_table: dict = {}
+    misc: list = []
+    for f in grid_fields:
+        m = ID_RE.match(str(f["id"]))
+        if m and f.get("value_type") == "text":
+            by_table.setdefault(f"s{m.group(1)}_t{m.group(2)}", []).append(f)
+        else:
+            misc.append(f)
+
+    # 섹션 = (렌더, 필드들). 표는 개별 render(), 기타는 렌더 없이 목록만.
+    sections: list = []
+    for grid in grid_doc.tables:
+        fs = by_table.get(grid.key)
+        if fs:
+            sections.append((grid.render(mark_blanks=True), fs))
+    if misc:
+        sections.append(("", misc))
+
+    # 문자 예산으로 청크 패킹 (표 하나가 예산 초과해도 최소 1섹션은 담는다)
+    chunks: list = []
+    cur_r, cur_f, cur_len = [], [], 0
+    for render, fs in sections:
+        if cur_f and cur_len + len(render) > _GRID_CHUNK_CHARS:
+            chunks.append((cur_r, cur_f))
+            cur_r, cur_f, cur_len = [], [], 0
+        cur_r.append(render)
+        cur_f.extend(fs)
+        cur_len += len(render)
+    if cur_f:
+        chunks.append((cur_r, cur_f))
+
+    if len(chunks) > 1:
+        log(f"대형 양식 — 표 단위 {len(chunks)}청크로 분할 채움")
+
+    range_note = f"\n### 작성 범위: {page_range}\n" if page_range else ""
+    fill_data: dict = {}
+    for i, (renders, fields) in enumerate(chunks):
+        ids = {f["id"] for f in fields}
+        schema = _build_fill_schema(sorted(ids))
+        grid_render = "\n".join(r for r in renders if r)
+        if len(grid_render) > _GRID_CHUNK_CHARS:
+            grid_render = grid_render[:_GRID_CHUNK_CHARS] + "\n…(생략)"
+        struct = f"### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)\n{grid_render}\n\n" if grid_render else ""
+        prompt = f"""당신은 교사의 공문 양식을 채우는 비서입니다.
+
+## 참고 문서
+{context_text if context_text else "(참고 문서 없음)"}
+
+## 교사 지시사항
+{instruction if instruction else "(없음)"}
+{range_note}
+{struct}### 채워야 할 빈칸 ({len(fields)}개)
+{_render_blank_list(fields)}
+
+위 참고 문서와 교사 지시를 바탕으로, 각 빈칸에 알맞은 값을 넣으세요.
+- 빈칸 라벨(행 이름 × 열 이름)의 의미에 맞는 값을 채우세요.
+- 값을 알 수 없거나 채울 필요가 없는 빈칸은 생략하세요.
+- 이미 의미 있는 값이 들어 있는 칸은 그대로 두세요(비어 있을 때만 채움).
+- 값에는 빈칸에 들어갈 내용만 쓰세요 — 라벨이나 기호("(인)", "성명:" 등)를 반복하지 마세요.
+- id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.
+"""
+        if len(chunks) > 1:
+            log(f"  청크 {i+1}/{len(chunks)}: 빈칸 {len(fields)}개")
+        resp = _call_llm(prompt, provider, model, config, json_schema=schema)
+        fill_data.update(_parse_fill_response(resp, ids))
+    log(f"배치 결정: {len(fill_data)}개 항목")
+    return fill_data
 
 
 def _verify_hwpx_fill(out_path: str, fill_data: dict) -> tuple[dict, dict]:
