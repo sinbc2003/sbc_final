@@ -282,5 +282,18 @@ def fill_grid_live(form_path: str, fill_data: dict, elements: list[dict],
             _log(f"저장 실패: {e}")
             output_path = ""
 
-    return {"output": output_path, "filled": filled,
-            "skipped": skipped, "stats": stats}
+    # ── 저장본 재추출 검증 (정직한 보고 — 라이브는 재시도 대신 미반영 보고) ──
+    verified, missing = 0, []
+    if output_path:
+        try:
+            from engine.form_assist import _verify_hwpx_fill
+            ver, mis = _verify_hwpx_fill(output_path, fill_data)
+            verified, missing = len(ver), list(mis)
+            if missing:
+                _log(f"검증: {verified}/{len([v for v in fill_data.values() if str(v).strip()])} "
+                     f"반영, 미반영 {len(missing)}개: {missing[:5]}")
+        except Exception as e:
+            _log(f"검증 건너뜀: {e}")
+
+    return {"output": output_path, "filled": filled, "skipped": skipped,
+            "stats": stats, "verified": verified, "missing": missing}

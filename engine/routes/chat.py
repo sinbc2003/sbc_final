@@ -183,8 +183,9 @@ async def chat_live(req: LiveChatRequest):
             filled = fill.get("filled", 0)
             file = fill.get("file", "")
             reply = f"빈칸 {filled}개를 문서에 채웠습니다."
-            if fill.get("skipped"):
-                reply += f" ({len(fill['skipped'])}개는 확인이 필요해 건너뜀)"
+            unresolved = len(fill.get("skipped") or []) + len(fill.get("missing") or [])
+            if unresolved:
+                reply += f" ({unresolved}개는 확인이 필요합니다)"
             if file:
                 from pathlib import Path as _P
                 reply += f"\n완성 파일: `{_P(file).name}`"
@@ -283,8 +284,9 @@ async def chat_live_stream(req: StreamChatRequest):
             if fill.get("ok"):
                 filled = fill.get("filled", 0)
                 reply = f"빈칸 {filled}개를 문서에 채웠습니다."
-                if fill.get("skipped"):
-                    reply += f" ({len(fill['skipped'])}개는 확인이 필요해 건너뜀)"
+                unresolved = len(fill.get("skipped") or []) + len(fill.get("missing") or [])
+                if unresolved:
+                    reply += f" ({unresolved}개는 확인이 필요합니다)"
                 if fill.get("file"):
                     from pathlib import Path as _P
                     reply += f"\n완성 파일: `{_P(fill['file']).name}`"

@@ -135,8 +135,73 @@ def t_grid_roundtrip():
     check("셀 주입", n >= 1 and cell.get(ids[0]) == "테스트값")
 
 
+# ── 7. 채움 후 검증 + 재시도 (LLM 목킹) ──
+def t_verify_retry():
+    print("[verify + retry]")
+    wd = workdir("off_vr_")
+    form = md_to_hwpx("# 신청서\n\n| 항목 | 내용 |\n| --- | --- |\n| 성명 | ○○○ |\n| 소속 | ○○○ |\n",
+                      "form", wd)
+    doc = parse_hwpx(form)
+    fields = [f for f in extract_blank_fields(doc, include_filled=True)
+              if f.get("value_type") == "text" and fa._is_fillable(f)]
+    ids = sorted(f["id"] for f in fields)
+    # 1) 완전 반영 → missing 0
+    out = str(wd / "full.hwpx")
+    fill_hwpx_cells(form, out, {ids[0]: "홍길동", ids[1]: "1반"})
+    ver, mis = fa._verify_hwpx_fill(out, {ids[0]: "홍길동", ids[1]: "1반"})
+    check("전부 반영 검증", len(ver) == 2 and not mis)
+    # 2) 일부 미반영 → missing 감지
+    out2 = str(wd / "partial.hwpx")
+    fill_hwpx_cells(form, out2, {ids[0]: "홍길동"})  # ids[1] 안 채움
+    ver2, mis2 = fa._verify_hwpx_fill(out2, {ids[0]: "홍길동", ids[1]: "1반"})
+    check("미반영 감지", list(mis2) == [ids[1]] and list(ver2) == [ids[0]])
+
+    # 3) _retry_fill 단위: 미반영 subset만 재요청 → 값 반환 (enum도 그 subset)
+    from engine import deps
+    import json as _j
+    seen_enum = {}
+
+    class FakeLLM:
+        def _pick_provider(self):
+            return "local"
+
+        def generate_chat(self, messages, *, max_tokens, temperature, provider, model,
+                          json_schema=None):
+            enum = json_schema["properties"]["채움"]["items"]["properties"]["id"]["enum"]
+            seen_enum["ids"] = list(enum)
+            return _j.dumps({"채움": [{"id": e, "값": "재시도값"} for e in enum]},
+                            ensure_ascii=False)
+
+    deps.llm_manager = FakeLLM()
+    retry = fa._retry_fill({ids[1]: "x"}, fields, "", "지시", "local", "", {}, lambda m: None)
+    check("재시도 enum=미반영 subset", seen_enum["ids"] == [ids[1]])
+    check("재시도 값 반환", retry == {ids[1]: "재시도값"})
+
+    # 4) run_form_assist 통합: 전부 반영 → 재시도 없음, 정직 보고
+    class FakeLLM2:
+        def _pick_provider(self):
+            return "local"
+
+        def generate_chat(self, messages, *, max_tokens, temperature, provider, model,
+                          json_schema=None):
+            enum = json_schema["properties"]["채움"]["items"]["properties"]["id"]["enum"]
+            vmap = {ids[0]: "김철수", ids[1]: "3반"}
+            return _j.dumps({"채움": [{"id": e, "값": vmap.get(e, "값")} for e in enum]},
+                            ensure_ascii=False)
+
+    deps.llm_manager = FakeLLM2()
+    res = fa.run_form_assist(files=[{"path": form, "name": "form.hwpx"}],
+                             instruction="테스트", output_file_idx=0,
+                             llm_provider="local", output_dir=str(wd), log_cb=lambda m: None)
+    check("통합: 미반영 0·검증 2", res.get("missing") == [] and res.get("verified") == 2)
+    rdoc = parse_hwpx(res["file"])
+    vals = {c.text for g in rdoc.tables for c in g.cells.values()}
+    check("통합: 값 반영", "김철수" in vals and "3반" in vals)
+
+
 def main():
-    for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks, t_grid_roundtrip):
+    for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
+               t_grid_roundtrip, t_verify_retry):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

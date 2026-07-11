@@ -233,6 +233,8 @@ async def run_fill_live(
         "file": result["output"],
         "filled": result["filled"],
         "skipped": result["skipped"],
+        "verified": result.get("verified", 0),
+        "missing": result.get("missing", []),
         "align_stats": result["stats"],
         "plan": fill_data,
         "logs": logs,

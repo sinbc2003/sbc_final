@@ -261,6 +261,25 @@ def run_form_assist(
                 if filled:
                     result["file"] = out_path
                     log(f"완성 파일: {out_path}")
+
+                    # ── 재추출 검증 + 미반영 1회 재시도 (설계 §1) ──
+                    verified, missing = _verify_hwpx_fill(out_path, fill_data)
+                    if missing:
+                        log(f"검증: {len(verified)}/{len(fill_data)} 반영, {len(missing)}개 미반영 — 재시도")
+                        retry = _retry_fill(missing, grid_fields, context_text, instruction,
+                                            llm_provider, llm_model, llm_config or {}, log)
+                        if retry:
+                            r_grid = {k: v for k, v in retry.items() if ID_RE.match(k)}
+                            r_body = {k: v for k, v in retry.items() if BODY_ID_RE.match(k)}
+                            r_field = {k: v for k, v in retry.items()
+                                       if not ID_RE.match(k) and not BODY_ID_RE.match(k)}
+                            fill_hwpx_cells(out_path, out_path, r_grid, log=log,
+                                            field_map=r_field or None, body_map=r_body or None)
+                            verified, missing = _verify_hwpx_fill(out_path, fill_data)
+                    result["verified"] = len(verified)
+                    result["missing"] = list(missing)
+                    log(f"검증 완료: {len(verified)}/{len(fill_data)} 반영"
+                        + (f", 미반영 {len(missing)}개: {list(missing)[:5]}" if missing else ""))
                 else:
                     log("주입된 셀 없음 — 셀ID 매칭 실패")
             else:
@@ -724,6 +743,63 @@ def _parse_fill_response(text: str, valid_ids=None) -> dict:
     if valid is not None:
         out = {k: v for k, v in out.items() if k in valid}
     return out
+
+
+def _verify_hwpx_fill(out_path: str, fill_data: dict) -> tuple[dict, dict]:
+    """완성본을 재파싱해 각 값이 실제 반영됐는지 확인 (설계 §1 '재추출 검증').
+
+    반환: (verified {id:값}, missing {id:값}). 빈 값('')은 검증 대상 제외.
+    """
+    from engine.hwpml.hwpx_grid import parse_hwpx, ID_RE, BODY_ID_RE
+
+    def _n(s: str) -> str:
+        return "".join((s or "").split())
+
+    doc = parse_hwpx(out_path)
+    cells = {f"{g.key}_r{r}_c{c}": cell.text
+             for g in doc.tables for (r, c), cell in g.cells.items()}
+    flow = _n(doc.render_text())
+
+    verified, missing = {}, {}
+    for k, v in fill_data.items():
+        val = str(v).strip()
+        if not val:
+            continue
+        nv = _n(val)
+        if ID_RE.match(str(k)):
+            ok = nv in _n(cells.get(k, ""))
+        elif BODY_ID_RE.match(str(k)):
+            ok = nv in flow
+        else:  # 누름틀명
+            ok = nv in flow or any(nv in _n(t) for t in cells.values())
+        (verified if ok else missing)[k] = v
+    return verified, missing
+
+
+def _retry_fill(missing: dict, grid_fields: list, context_text: str, instruction: str,
+                provider: str, model: str, config: dict, log) -> dict:
+    """미반영 빈칸만 LLM에 다시 요청 (1회 재시도). 반환: {id:값} (유효 id 필터)."""
+    fields = [f for f in grid_fields if f["id"] in missing]
+    if not fields:
+        return {}
+    ids = {f["id"] for f in fields}
+    schema = _build_fill_schema(sorted(ids))
+    prompt = f"""당신은 교사의 공문 양식을 채우는 비서입니다.
+
+## 참고 문서
+{context_text if context_text else "(참고 문서 없음)"}
+
+## 교사 지시사항
+{instruction if instruction else "(없음)"}
+
+## 아직 못 채운 빈칸 ({len(fields)}개) — 아래만 정확히 다시 채우세요
+{_render_blank_list(fields)}
+
+- 각 빈칸 라벨의 의미에 맞는 값만 쓰세요. 값에는 라벨·기호를 반복하지 마세요.
+- id는 위 목록의 id를 정확히 그대로 쓰세요.
+"""
+    resp = _call_llm(prompt, provider, model, config, json_schema=schema)
+    return _parse_fill_response(resp, ids)
 
 
 def _resolve_save_dir(output_dir: str, temp_dir: str) -> str:
