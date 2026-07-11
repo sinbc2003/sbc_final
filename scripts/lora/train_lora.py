@@ -120,9 +120,11 @@ def main() -> int:
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
         llm_int8_skip_modules=[".*altup.*", ".*laurel.*", "lm_head"])
+    # tf 5.x: torch_dtype는 deprecated·무시됨 → dtype 사용.
+    # (무시되면 비양자화 파트가 FP32로 올라가 VRAM 스필 — RTX5080 실측 원인)
     model = AutoModelForCausalLM.from_pretrained(
         args.model, quantization_config=bnb, device_map={"": 0},
-        torch_dtype=torch.bfloat16, trust_remote_code=True)
+        dtype=torch.bfloat16, trust_remote_code=True)
     model = prepare_model_for_kbit_training(model)
     model.config.use_cache = False
 
