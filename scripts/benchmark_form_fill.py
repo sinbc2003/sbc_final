@@ -206,13 +206,13 @@ def compute_derived(entries: list, cols: int) -> list:
     return out
 
 
-def _make_llm():
+def _make_llm(local_model: str = ""):
     import os
     from engine.llm_manager import LLMManager
     from engine.settings import SettingsManager
 
     try:
-        config = SettingsManager().get_llm_config()
+        config = SettingsManager(ROOT / "data").get_llm_config()  # data_dir 필수 인자(버그 수정)
     except Exception:
         config = {}
     for k, env in [("claude_api_key", "ANTHROPIC_API_KEY"),
@@ -220,8 +220,22 @@ def _make_llm():
                    ("gemini_api_key", "GEMINI_API_KEY")]:
         if not config.get(k):
             config[k] = os.environ.get(env, "")
-    config.setdefault("local_ctx", 8192)
+    config.setdefault("local_context_size", 8192)
+    if local_model:  # --gguf로 지목한 모델 강제
+        config["local_model"] = local_model
     return LLMManager(models_dir=ROOT / "models", config=config)
+
+
+def _local_model_identity(llm) -> dict:
+    """현재 로컬 경로가 서빙할 GGUF 신원 (결과 스탬프용)."""
+    p = llm._find_local_model()
+    if not p:
+        return {"gguf": "(없음)"}
+    name = p.name
+    import re as _re
+    qm = _re.search(r"(Q\d[_A-Za-z0-9]*|IQ\d[_A-Za-z0-9]*|F16|BF16)", name)
+    return {"gguf": name, "quant": qm.group(1) if qm else "",
+            "size_mb": round(p.stat().st_size / 1024 / 1024)}
 
 
 ROSTER_SCHEMA = {
@@ -282,14 +296,18 @@ def roster_to_text(roster: dict) -> str:
     return "\n".join(lines)
 
 
-def run_level2(provider: str, workdir: Path, original_doc, gt: dict) -> dict:
+def run_level2(provider: str, workdir: Path, original_doc, gt: dict,
+               local_model: str = "") -> dict:
     """빈 시험지에 [LLM 파싱 → 코드 배치·계산] 파이프라인으로 채우고 채점."""
+    import time as _time
     blank_path = workdir / "빈시험지.hwpx"
     fill_hwpx_cells(ORIGINAL, str(blank_path), {k: "" for k in gt})
 
     blank_doc = parse_hwpx(str(blank_path))
     rosters = build_roster(original_doc)
-    llm = _make_llm()
+    llm = _make_llm(local_model)
+    identity = _local_model_identity(llm) if provider == "local" else {"model": provider}
+    _t0 = _time.monotonic()
 
     fill_map: dict = {}
     for roster in rosters:
@@ -336,15 +354,18 @@ def run_level2(provider: str, workdir: Path, original_doc, gt: dict) -> dict:
 
     result_doc = parse_hwpx(str(result_path))
     correct, total, diffs = grade(original_doc, result_doc, scope=set(gt))
-    return {"mode": f"level2:{provider}", "correct": correct, "total": total,
-            "accuracy": round(correct / total * 100, 1) if total else 0,
-            "diffs": diffs[:30], "result_file": str(result_path)}
+    return {"mode": f"level2:{provider}", "provider": provider, "correct": correct,
+            "total": total, "accuracy": round(correct / total * 100, 1) if total else 0,
+            "elapsed_s": round(_time.monotonic() - _t0, 1),
+            **identity, "diffs": diffs[:30], "result_file": str(result_path)}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--llm", nargs="?", const="local", default=None,
                     help="레벨2: LLM 의미 매칭 (local/claude/openai/gemini)")
+    ap.add_argument("--gguf", default="",
+                    help="로컬 모델 GGUF 파일명(부분일치) 지목 — 모델 비교용")
     ap.add_argument("--keep", action="store_true", help="중간 파일 보존")
     args = ap.parse_args()
 
@@ -395,16 +416,31 @@ def main():
 
     # ── 레벨2: LLM ──
     if args.llm:
-        print(f"\n[레벨2] LLM 의미 매칭 (provider={args.llm})")
-        results["level2"] = run_level2(args.llm, workdir, original_doc, gt)
+        print(f"\n[레벨2] LLM 의미 매칭 (provider={args.llm}"
+              + (f", gguf~{args.gguf}" if args.gguf else "") + ")")
+        results["level2"] = run_level2(args.llm, workdir, original_doc, gt, args.gguf)
         r2 = results["level2"]
-        print(f"[레벨2] 채점: {r2['correct']}/{r2['total']} ({r2['accuracy']}%)")
+        model_tag = r2.get("gguf") or r2.get("model", args.llm)
+        print(f"[레벨2] {model_tag}: {r2['correct']}/{r2['total']} "
+              f"({r2['accuracy']}%, {r2.get('elapsed_s','?')}s)")
         for k, o, r in r2["diffs"][:15]:
             print(f"    {k}: 원본='{o}' 결과='{r}'")
 
     out_json = ROOT / "scripts" / "benchmark_last_result.json"
     out_json.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n결과 저장: {out_json}")
+
+    # 모델 비교용 원장(ledger) 축적 — 레벨2 결과에 모델 신원+정확도 append
+    if args.llm and "level2" in results:
+        ledger = ROOT / "scripts" / "benchmark_ledger.jsonl"
+        r2 = results["level2"]
+        entry = {k: r2.get(k) for k in
+                 ("provider", "gguf", "quant", "size_mb", "model",
+                  "correct", "total", "accuracy", "elapsed_s")}
+        with ledger.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        print(f"원장 기록: {ledger.name}")
+
     if not args.keep and not args.llm:
         pass  # tempdir는 OS가 정리
     return 0 if not diffs else 1

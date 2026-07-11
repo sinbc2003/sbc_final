@@ -57,3 +57,7 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# 모델 비교 원장 (로컬 실측 로그)
+scripts/benchmark_ledger.jsonl
+scripts/model_matrix_result.json

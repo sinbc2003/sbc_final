@@ -20,10 +20,15 @@
   },
   "level2": {
     "mode": "level2:local",
+    "provider": "local",
     "correct": 495,
     "total": 495,
     "accuracy": 100.0,
+    "elapsed_s": 22.1,
+    "gguf": "gemma-4-E4B-it-Q3_K_S.gguf",
+    "quant": "Q3_K_S",
+    "size_mb": 3683,
     "diffs": [],
-    "result_file": "C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\bench_dv93hb90\\LLM채움.hwpx"
+    "result_file": "C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\bench_dji_91po\\LLM채움.hwpx"
   }
 }
