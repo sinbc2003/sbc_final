@@ -153,13 +153,17 @@ def main() -> int:
     _mod = _sys.modules.get(type(model).__module__)
     if _mod is not None and hasattr(_mod, "create_causal_mask"):
         _orig = _mod.create_causal_mask
-        if "input_embeds" not in inspect.signature(_orig).parameters:
+        _sig = set(inspect.signature(_orig).parameters)
+        if "input_embeds" not in _sig:
             def _ccm_shim(*a, **kw):
-                if "input_embeds" in kw:
+                if "input_embeds" in kw and "inputs_embeds" in _sig:
                     kw["inputs_embeds"] = kw.pop("input_embeds")
+                # tf 5.13에서 제거된 인자(cache_position 등)는 걸러냄 —
+                # 학습(캐시 없음)에선 마스크 산출에 불필요.
+                kw = {k: v for k, v in kw.items() if k in _sig}
                 return _orig(*a, **kw)
             _mod.create_causal_mask = _ccm_shim
-            print("create_causal_mask 심 적용 (input_embeds→inputs_embeds)")
+            print("create_causal_mask 일반 심 적용 (인자 정합 필터)")
 
     model = prepare_model_for_kbit_training(model)
     model.config.use_cache = False
