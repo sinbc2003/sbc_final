@@ -729,9 +729,27 @@ set PYTHONUTF8=1 && set ENGINE_PORT=8407 && python -m engine.server   # http://1
 - **E4B 편집 신뢰성 스위트: 3/4 → 4/4** (실패하던 replace_cell_content 성공, 로그 "셀 좌표 캘리브레이션: 6/6셀(12블록)").
 - E2B 동일 스위트 3/4: **셀 편집 성공**(캘리브레이션 효과), 잔여 1실패는 실행 성공·문서 불일치 = 모델이 제목 텍스트를 변형해 넣은 2B 품질 편차(시스템 아님).
 
+---
+
+## 22. 작업 기록 — 2026-07-11 (품질 3종: 테스트 영구화 + 검산·재시도 + 대형양식 청킹 ✅)
+
+### ① tests/ 영구화 (`93b9416`)
+scratchpad 임시 테스트를 리포에 티어별 고정: `tests/{test_offline,test_com,test_e2e,helpers,hwp_op,run_tests}.py`+README. **offline 44검사**(COM·LLM 불필요, CI 적합), com(한/글), e2e(엔진+llama). 전제 미충족 시 자동 skip, 경로 이식성(ROOT 상대). `python tests/run_tests.py [offline|com|all|e2e]`. 검증: offline 44/44, com 7/7.
+
+### ③ 채움 후 재추출 검증 + 미반영 1회 재시도 (`cea46e0`) — 설계 §1 완결
+- `_verify_hwpx_fill`: 완성본 재파싱 → 셀/본문/누름틀 값 반영 여부(verified/missing). `_retry_fill`: 미반영 빈칸만 enum 강제 재요청(1회).
+- run_form_assist(hwpx_grid): 채움→검증→재시도→재검증, result에 verified/missing(**정직 보고, 조용한 성공 제거**). grid_live: 저장본 검증(라이브는 per-write 가드로 재시도 대신 보고). 채팅 "N개는 확인이 필요합니다".
+- **의미 주의**: 검증은 LLM이 "채웠다고 한 값"의 반영 여부 — LLM이 아예 생략한 빈칸은 대상 아님(생략은 설계상 허용). 재시도는 claimed-but-unstuck용.
+
+### ② 대형 양식 표 단위 청킹 (`e971913`) — 렌더 절단 제거
+- `_plan_grid_fill`: 표별 렌더+빈칸을 문자예산(7000) 내로 묶어 청크마다 그 청크 셀ID enum만 강제→절단 없이 전 셀 노출→병합. 공용 함수(run_form_assist·plan_hwpx_grid_fill 둘 다 사용, 프롬프트 중복 제거).
+- 검증: offline 300빈칸·11870자→2+청크·전 ID 노출, **멀티청크 gemma E2E**(렌더 9856자→2청크→각 청크 정확 채움 4/4), 소형 1청크 회귀 4/4.
+
 ### 남은 것 / 다음 후보
 - find 순회 전제(머리말/꼬리말 미간섭) 실문서 추가 확인, 중첩 표 문서 라이브.
 - E2B 편집 값 정확도(텍스트 변형 경향) — 스킬 few-shot 미세조정 또는 "새 텍스트는 지시된 문구 그대로" 규칙 후보.
+- Excel 라이브 채움(현재 파일 기반만, inline-ai는 xlwings 라이브), API 키 보안(평문→Credential Manager), training_logger(교사 수정 수집=LoRA 전제).
+- **배포 패키징(엔진 EXE+Tauri 번들+llama/GGUF 동봉) — LoRA급 대형 트랙**(§9 설계 있음).
 - **LoRA 증류(`GEMMA_LORA_GUIDE.md`) — 남은 최대 트랙**(생성 품질 상향·장문, RTX5080 본진. 원본 문서 위치는 사용자 확인 필요).
 
 ---
