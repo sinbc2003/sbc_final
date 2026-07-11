@@ -25,8 +25,11 @@ ANON_REPORT = DATA_ROOT / "anon_report.json"
 
 TEXT_EXTS = {".odt", ".hwp", ".hwpx"}
 
+# 기안문: "[기관-번호 (본문)] 제목.ext"
+# 접수문: "[기관-번호 (본문) 발신기관 부서] 제목.ext" — (유형) 뒤 발신처 허용
 FILENAME_RE = re.compile(
-    r"^\[(?P<org>.+)-(?P<num>\d+(?:-\d+)?)\s*\((?P<kind>[^)]+)\)\]\s*"
+    r"^\[(?P<org>.+?)-(?P<num>\d+(?:-\d+)?)\s*\((?P<kind>[^)]+)\)"
+    r"(?P<sender>[^\]]*)\]\s*"
     r"(?P<title>.+?)\s*\.(?P<ext>odt|hwp|hwpx)$",
     re.IGNORECASE,
 )
@@ -39,6 +42,7 @@ def parse_filename(name: str) -> dict | None:
         return None
     d = m.groupdict()
     d["ext"] = d["ext"].lower()
+    d["sender"] = (d.get("sender") or "").strip() or None
     return d
 
 

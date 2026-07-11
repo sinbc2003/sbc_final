@@ -27,6 +27,7 @@ def main() -> int:
             "org": meta["org"] if meta else None,
             "num": meta["num"] if meta else None,
             "kind": meta["kind"] if meta else None,
+            "sender": meta.get("sender") if meta else None,
             "title": meta["title"] if meta else p.stem,
             "ext": p.suffix.lower().lstrip("."),
             "size": p.stat().st_size,
