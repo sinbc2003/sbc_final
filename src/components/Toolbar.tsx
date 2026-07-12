@@ -38,12 +38,20 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
     return () => clearInterval(autoSaveTimer.current);
   }, []);
 
-  // Ctrl+S 저장
+  // Ctrl+S 저장 — 마운트 시점 클로저(workflowId=null)를 캡처하면 첫 저장 후에도
+  // 매번 이름 프롬프트가 뜨고 새 워크플로우가 중복 생성됨. 최신 상태를 직접 조회.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        handleSave();
+        const s = useStore.getState();
+        if (s.mode && s.mode !== "design") return;  // 설계 모드에서만
+        if (s.workflowId) {
+          s.saveWorkflow();
+        } else if (s.nodes.length > 0) {
+          const name = prompt("워크플로우 이름:", s.workflowName);
+          if (name) s.saveAsWorkflow(name);
+        }
       }
     };
     window.addEventListener("keydown", handler);
@@ -90,7 +98,12 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
             {paletteOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
           </button>
 
-          <button onClick={newWorkflow} title="새 워크플로우"
+          <button onClick={() => {
+              const s = useStore.getState();
+              if (s.dirty && s.nodes.length > 0 &&
+                  !window.confirm("저장하지 않은 변경이 있습니다. 새 워크플로우를 시작할까요?")) return;
+              newWorkflow();
+            }} title="새 워크플로우"
             className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
             <FilePlus size={16} />
           </button>

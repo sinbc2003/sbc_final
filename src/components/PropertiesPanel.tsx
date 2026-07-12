@@ -183,7 +183,13 @@ function ParamField({ def, value, onChange, isFileNode, fileAccept, isLlmNode }:
   if (def.type === "integer" || def.type === "float") {
     return (
       <input type="number" value={value ?? def.default ?? ""}
-        onChange={(e) => onChange(def.type === "integer" ? parseInt(e.target.value) : parseFloat(e.target.value))}
+        onChange={(e) => {
+          // 값을 비우면 parse→NaN이 저장돼 엔진에 null로 전달됨 → 기본값으로 폴백.
+          const raw = e.target.value;
+          if (raw === "") { onChange(def.default ?? 0); return; }
+          const n = def.type === "integer" ? parseInt(raw) : parseFloat(raw);
+          onChange(Number.isNaN(n) ? (def.default ?? 0) : n);
+        }}
         step={def.type === "float" ? 0.1 : 1} className={`${base} px-2 py-1.5`} />
     );
   }
@@ -330,6 +336,10 @@ export function PropertiesPanel() {
                   <ParamField def={p} value={data.paramValues[p.id]}
                     onChange={(v) => updateNodeParams(selectedNode.id, { [p.id]: v })}
                     isFileNode={isFileNode} fileAccept={fileAccept} isLlmNode={isLlmNode} />
+                  {/* 파라미터 설명 노출 — boolean은 자체 라벨이 있어 제외 */}
+                  {p.description && p.type !== "boolean" && (
+                    <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">{p.description}</p>
+                  )}
                 </div>
               );
             })}

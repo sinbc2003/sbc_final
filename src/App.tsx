@@ -27,5 +27,18 @@ export default function App() {
     loadNodeDefinitions().then(setNodeDefinitions);
   }, [setNodeDefinitions]);
 
+  // 미저장 변경 상태에서 탭/새로고침 시 경고 — 자동저장(30초) 사이의 유실 방지.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const s = useStore.getState();
+      if (s.dirty && s.nodes.length > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   return <Layout />;
 }
