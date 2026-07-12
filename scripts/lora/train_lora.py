@@ -103,6 +103,9 @@ def main() -> int:
     ap.add_argument("--no-4bit", action="store_true",
                     help="양자화 없이 bf16 LoRA (소형 모델용 — gemma-3n AltUp "
                          "clamp가 float라 정상 동작, E2B는 16GB에 수용 가능)")
+    ap.add_argument("--no-eval", action="store_true",
+                    help="에폭 평가 생략 + 스텝 저장(28) — 스필 상태에서 평가 배치가 "
+                         "메모리 스파이크로 무음사(無音死)하는 것 방지(§25 실측)")
     args = ap.parse_args()
 
     import torch
@@ -217,16 +220,20 @@ def main() -> int:
                            args.max_len)
     print(f"train {len(train_ds)} / val {len(val_ds)}")
 
+    eval_kw = (dict(eval_strategy="no", save_strategy="steps",
+                    save_steps=28)
+               if args.no_eval else
+               dict(eval_strategy="epoch", save_strategy="epoch",
+                    per_device_eval_batch_size=max(1, args.batch)))
     targs = TrainingArguments(
         output_dir=args.out, num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr, lr_scheduler_type="cosine",
         warmup_ratio=0.05, logging_steps=5,
-        eval_strategy="epoch", save_strategy="epoch",
         save_total_limit=2, bf16=True,
         gradient_checkpointing=True, report_to=[],
-        dataloader_pin_memory=False)
+        dataloader_pin_memory=False, **eval_kw)
     trainer = Trainer(model=model, args=targs,
                       train_dataset=train_ds, eval_dataset=val_ds,
                       data_collator=collate(tokenizer))
