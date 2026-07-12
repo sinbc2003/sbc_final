@@ -100,6 +100,9 @@ def main() -> int:
     ap.add_argument("--max-len", type=int, default=3072)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
+    ap.add_argument("--no-4bit", action="store_true",
+                    help="양자화 없이 bf16 LoRA (소형 모델용 — gemma-3n AltUp "
+                         "clamp가 float라 정상 동작, E2B는 16GB에 수용 가능)")
     args = ap.parse_args()
 
     import torch
@@ -122,14 +125,19 @@ def main() -> int:
     # altup/laurel은 초소형 Linear라 제외 비용도 없음.
     # ⚠ tf 5.x는 skip 매칭이 접두사/정규식(re.match)/접미사만 — 경로 중간
     # 토큰은 ".*이름.*" 정규식으로 써야 매칭됨(quantizers_utils.should_convert_module).
-    bnb = BitsAndBytesConfig(
-        load_in_4bit=True, bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-        llm_int8_skip_modules=[".*altup.*", ".*laurel.*", "lm_head"])
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model, quantization_config=bnb, device_map={"": 0},
-        trust_remote_code=True, **dtype_kw)
+    if args.no_4bit:
+        # bf16 그대로 — 양자화 관련 함정 전부 회피(E2B급 소형 전용).
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model, device_map={"": 0}, trust_remote_code=True, **dtype_kw)
+    else:
+        bnb = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            llm_int8_skip_modules=[".*altup.*", ".*laurel.*", "lm_head"])
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model, quantization_config=bnb, device_map={"": 0},
+            trust_remote_code=True, **dtype_kw)
 
     # EXAONE 3.5 원격코드(tf5 포팅 불완전)가 get_input_embeddings 미구현 —
     # peft tied-modules 검사가 호출하므로 토큰 임베딩(wte)으로 인스턴스 패치.
@@ -165,7 +173,11 @@ def main() -> int:
             _mod.create_causal_mask = _ccm_shim
             print("create_causal_mask 일반 심 적용 (인자 정합 필터)")
 
-    model = prepare_model_for_kbit_training(model)
+    if args.no_4bit:
+        # 체크포인팅 + LoRA 조합에 입력 grad 필요(kbit prep가 하던 일)
+        model.enable_input_require_grads()
+    else:
+        model = prepare_model_for_kbit_training(model)
     model.config.use_cache = False
 
     # 타깃 모듈 자동 감지 — 모델 패밀리별 레이어명 차이 흡수
