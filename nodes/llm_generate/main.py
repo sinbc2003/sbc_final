@@ -74,11 +74,10 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     lora = params.get("lora") or None
     model = params.get("model") if params.get("model") else None
 
-    # LoRA 어댑터는 아직 엔진에 배선되지 않음 → 지정 시 오해 방지용 경고
+    # LoRA: 서버에 프리로드된 어댑터(settings.llm.local_lora, 기본 scale 0)를
+    # 이 생성 요청만 scale 1.0으로 활성화(로컬 provider 한정 — llm_manager §5 배선).
     if lora:
-        context["log"](
-            f"[WARN] LoRA 어댑터('{lora}')는 현재 활성화되지 않아 기본(베이스) 모델로 생성됩니다."
-        )
+        context["log"](f"LoRA 어댑터 요청: '{lora}' (로컬 서버 프리로드 시 생성에 적용)")
 
     context["progress"](0.1)
 

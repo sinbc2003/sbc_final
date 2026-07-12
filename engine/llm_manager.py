@@ -359,16 +359,24 @@ class LLMManager:
                     pass
             else:
                 raise RuntimeError("llama-server 시작 실패 (30초 타임아웃)")
+
+        # 서버(재사용 포함)에 프리로드된 LoRA 어댑터 유무 — per-request 스케일 적용 조건
+        try:
+            r = _req.get(f"{server_url}/lora-adapters", timeout=2)
+            self._lora_loaded = bool(r.ok and r.json())
+        except Exception:
+            self._lora_loaded = False
         return server_url
 
     def _local_chat_completion(
         self, messages: list[dict], max_tokens: int, temperature: float,
-        json_schema: dict | None = None,
+        json_schema: dict | None = None, lora_scale: float | None = None,
     ) -> str:
         """llama-server /v1/chat/completions 호출.
 
         messages(역할 배열)를 직통 전달 → 모델 내장 chat 템플릿(--jinja)이
         system/user 역할을 정확히 적용. gemma-4 등 사고모델은 --reasoning off로 기동.
+        lora_scale: 서버에 프리로드된 어댑터(기본 scale 0)를 이 요청만 켬(1.0).
         """
         import requests as _req
 
@@ -379,6 +387,8 @@ class LLMManager:
                 "model": "local", "messages": messages,
                 "max_tokens": max_tokens, "temperature": temperature,
             }
+            if lora_scale is not None and getattr(self, "_lora_loaded", False):
+                payload["lora"] = [{"id": 0, "scale": lora_scale}]
             if with_schema and json_schema:
                 # OpenAI 호환 스키마 강제 디코딩 (llama.cpp가 문법으로 강제)
                 payload["response_format"] = {
@@ -424,9 +434,14 @@ class LLMManager:
         self, prompt: str, max_tokens: int, temperature: float, lora: str | None,
         json_schema: dict | None = None,
     ) -> str:
-        """단일 프롬프트 로컬 생성. 미실행 시 llama-server 자동 시작."""
+        """단일 프롬프트 로컬 생성. 미실행 시 llama-server 자동 시작.
+
+        lora가 지정되면 프리로드 어댑터를 이 요청만 scale 1.0으로 활성화
+        (생성 전용 — 추출·분류·라이브 채팅은 lora 미지정 = 베이스 그대로).
+        """
         return self._local_chat_completion(
             [{"role": "user", "content": prompt}], max_tokens, temperature, json_schema,
+            lora_scale=(1.0 if lora else None),
         )
 
     def _generate_local_chat(
@@ -492,6 +507,14 @@ class LLMManager:
         reasoning = self._config.get("local_reasoning", "off")
         if reasoning in ("off", "on", "auto"):
             cmd += ["--reasoning", reasoning]
+
+        # LoRA 어댑터 프리로드 — 기본 스케일 0(OFF): 추출·분류·벤치는 베이스 그대로,
+        # 생성 요청만 per-request lora scale=1.0으로 활성화(가이드 §5 배선).
+        # ⚠ llama-server는 ANSI argv라 한글 경로가 깨짐(실측) → 어댑터는 ASCII 경로
+        # (예: D:\models\loras)에 둘 것.
+        lora_path = self._resolve_lora_path()
+        if lora_path:
+            cmd += ["--lora-scaled", str(lora_path), "0.0"]
 
         self._local_process = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -597,17 +620,33 @@ class LLMManager:
                 return f
         return ggufs[0] if ggufs else None
 
+    def _lora_dirs(self) -> list[Path]:
+        """LoRA 어댑터 탐색 경로 — 설정 loras_dirs > ASCII 기본(D:) > 리포 models/loras."""
+        dirs = [Path(d) for d in (self._config.get("loras_dirs") or [])]
+        dirs.append(Path("D:/models/loras"))  # ASCII 경로(한글 경로 argv 깨짐 회피)
+        if self._models_dir:
+            dirs.append(self._models_dir / "loras")
+        return dirs
+
     def _find_lora(self, lora_name: str) -> Path | None:
-        """models/loras/에서 LoRA 어댑터 찾기."""
-        if not self._models_dir:
-            return None
-        loras_dir = self._models_dir / "loras"
-        if not loras_dir.exists():
-            return None
-        for f in loras_dir.rglob("*.gguf"):
-            if lora_name in f.stem:
-                return f
+        """이름 부분일치로 LoRA 어댑터(gguf) 찾기."""
+        for d in self._lora_dirs():
+            if not d.exists():
+                continue
+            for f in d.rglob("*.gguf"):
+                if lora_name in f.stem:
+                    return f
         return None
+
+    def _resolve_lora_path(self) -> Path | None:
+        """설정 local_lora(경로 또는 이름) → 서버 프리로드할 어댑터 파일."""
+        name = (self._config.get("local_lora") or "").strip()
+        if not name:
+            return None
+        p = Path(name)
+        if p.suffix.lower() == ".gguf" and p.exists():
+            return p
+        return self._find_lora(name)
 
     def cleanup(self):
         """리소스 정리."""
