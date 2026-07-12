@@ -8,8 +8,12 @@
     "output_dir": ""
   },
   "llm": {
-    "default_provider": "auto",
-    "local_model": "",
+    "default_provider": "local",
+    "local_model": "E2B",
+    "local_lora": "gongmun_g4e2b_v1",
+    "models_dirs": [
+      "D:/models/teacherflow/e2b"
+    ],
     "local_context_size": 0,
     "default_temperature": 0.7,
     "default_max_tokens": 8096

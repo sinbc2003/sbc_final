@@ -389,6 +389,12 @@ class LLMManager:
             }
             if lora_scale is not None and getattr(self, "_lora_loaded", False):
                 payload["lora"] = [{"id": 0, "scale": lora_scale}]
+                # 소형모델 어댑터 생성의 반복 루프 방어(E2B 실측).
+                # ⚠ repeat_penalty는 프롬프트(제목) 토큰까지 억제해 주제 이탈 유발
+                # (실측: 독서캠프→퇴직수당) → 시퀀스 반복만 잡는 DRY 샘플러 사용.
+                # 추출·벤치(lora 미지정)는 이 경로를 안 타므로 무영향.
+                payload["dry_multiplier"] = 0.8
+                payload["dry_allowed_length"] = 4
             if with_schema and json_schema:
                 # OpenAI 호환 스키마 강제 디코딩 (llama.cpp가 문법으로 강제)
                 payload["response_format"] = {
@@ -513,11 +519,17 @@ class LLMManager:
         # ⚠ llama-server는 ANSI argv라 한글 경로가 깨짐(실측) → 어댑터는 ASCII 경로
         # (예: D:\models\loras)에 둘 것.
         lora_path = self._resolve_lora_path()
+        lora_cwd = None
         if lora_path:
-            cmd += ["--lora-scaled", str(lora_path), "0.0"]
+            # 이 llama.cpp 빌드는 --lora-scaled를 'FNAME:SCALE' 단일 인자로 받고
+            # FNAME의 첫 ':'에서 분리한다 → Windows 드라이브 문자 'D:'와 충돌(콜론 2개).
+            # cwd를 어댑터 폴더로 두고 콜론 없는 파일명만 넘겨 회피(실측).
+            cmd += ["--lora-scaled", f"{lora_path.name}:0.0"]
+            lora_cwd = str(lora_path.parent)
 
         self._local_process = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            cwd=lora_cwd,
         )
 
     def _generate_claude(

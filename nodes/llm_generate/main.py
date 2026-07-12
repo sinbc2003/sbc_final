@@ -76,7 +76,14 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
 
     # LoRA: 서버에 프리로드된 어댑터(settings.llm.local_lora, 기본 scale 0)를
     # 이 생성 요청만 scale 1.0으로 활성화(로컬 provider 한정 — llm_manager §5 배선).
-    if lora:
+    # 노드에 미지정이면 설정 기본 어댑터를 따름 — 채팅으로 만든 워크플로우도
+    # "생성 = 어댑터 ON" UX가 되도록. (추출·분류 노드는 lora 미전달 = 베이스 그대로)
+    if not lora and provider in ("auto", "local"):
+        cfg_lora = (getattr(llm, "_config", {}) or {}).get("local_lora")
+        if cfg_lora:
+            lora = cfg_lora
+            context["log"](f"설정 기본 LoRA 적용: '{lora}'")
+    elif lora:
         context["log"](f"LoRA 어댑터 요청: '{lora}' (로컬 서버 프리로드 시 생성에 적용)")
 
     context["progress"](0.1)
