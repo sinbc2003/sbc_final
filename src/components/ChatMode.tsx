@@ -54,7 +54,12 @@ export function ChatMode() {
     fetch("/api/models").then(r => r.json()).then((list: any[]) => {
       if (Array.isArray(list) && list.length > 0) {
         setModels(list);
-        if (!list.find(m => m.id === selectedModel)) {
+        // 엔진 설정(local_model)의 활성 모델을 기본 선택 — 하드코딩 OpenAI
+        // 기본값이 설정(default_provider=local)을 무시하고 429를 내던 문제 수정.
+        const active = list.find(m => m.active);
+        if (active) {
+          setSelectedModel(active.id);
+        } else if (!list.find(m => m.id === selectedModel)) {
           setSelectedModel(list[0].id);
         }
       }
