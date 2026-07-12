@@ -123,6 +123,47 @@ def parse_workflow_response(text: str) -> dict | None:
     return data
 
 
+def validate_workflow(data: dict, registry) -> list[str]:
+    """생성된 워크플로우를 저장 전에 코드로 검증 — '계산·검증은 코드' 철학.
+
+    환각 노드type·유령 엣지·오타 포트를 저장 전에 걸러 실행시점 무음실패를 막는다.
+    반환: 오류 메시지 리스트(빈 리스트=통과).
+    """
+    errors: list[str] = []
+    valid_types = set(registry.list_ids())
+    node_ids: set = set()
+    for n in data.get("nodes", []):
+        nid, ntype = n.get("id"), n.get("type")
+        if not nid:
+            errors.append("id가 없는 노드가 있습니다.")
+            continue
+        node_ids.add(nid)
+        if ntype not in valid_types:
+            errors.append(f"알 수 없는 노드 종류: '{ntype}' (노드 {nid})")
+
+    for e in data.get("edges", []):
+        src = e.get("from") or e.get("source", "")
+        tgt = e.get("to") or e.get("target", "")
+        if src not in node_ids:
+            errors.append(f"연결의 출발 노드 '{src}'가 존재하지 않습니다.")
+        if tgt not in node_ids:
+            errors.append(f"연결의 도착 노드 '{tgt}'가 존재하지 않습니다.")
+        # 포트명 검증 (노드type이 유효할 때만)
+        for nid, port_key, kind in ((src, "from_port", "out"), (tgt, "to_port", "in")):
+            node = next((n for n in data["nodes"] if n.get("id") == nid), None)
+            if not node:
+                continue
+            nd = registry.get(node.get("type"))
+            if nd is None:
+                continue
+            pname = e.get(port_key) or e.get(
+                "sourceHandle" if kind == "out" else "targetHandle", "")
+            ports = nd.outputs if kind == "out" else nd.inputs
+            if pname and pname not in {p.name for p in ports}:
+                errors.append(f"노드 '{nid}'에 '{pname}' 포트가 없습니다.")
+    return errors
+
+
 
 def _auto_layout(data: dict) -> None:
     """position이 없는 노드에 트리 레이아웃 위치를 할당."""
@@ -144,8 +185,10 @@ def _auto_layout(data: dict) -> None:
         parents[nid] = []
 
     for e in edges:
-        src = e.get("source", "")
-        tgt = e.get("target", "")
+        # LLM/runner 엣지는 from/to 형식 — source/target만 읽던 버그로
+        # 인접리스트가 항상 비어 전 노드가 한 열에 겹쳐 쌓이던 문제 수정.
+        src = e.get("from") or e.get("source", "")
+        tgt = e.get("to") or e.get("target", "")
         if src in node_ids and tgt in node_ids:
             children[src].append(tgt)
             parents[tgt].append(src)
@@ -255,8 +298,19 @@ def handle_chat(
     # 4. 워크플로우 파싱 시도
     workflow = parse_workflow_response(reply)
 
-    # 5. 워크플로우가 있으면 저장
+    # 5. 워크플로우가 있으면 검증 후 저장
     if workflow:
+        problems = validate_workflow(workflow, registry)
+        if problems:
+            # 환각 노드·유령 엣지 저장 방지 — 사유를 사용자에게 구체적으로 안내.
+            detail = "\n".join(f"- {p}" for p in problems[:5])
+            return {
+                "reply": (reply + "\n\n⚠️ 생성된 워크플로우에 문제가 있어 저장하지 "
+                          f"않았습니다:\n{detail}\n\n다시 시도하거나 더 구체적으로 "
+                          "요청해 주세요."),
+                "workflow_id": None,
+                "workflow_json": None,
+            }
         meta = store.save_workflow(workflow)
         return {
             "reply": reply,
