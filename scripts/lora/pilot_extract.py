@@ -65,6 +65,22 @@ def extract_body(md: str) -> str | None:
     return "\n".join(body).strip()
 
 
+def truncate_at_end(body: str) -> str:
+    """공문은 '끝.'으로 종료가 규범 — 끝. 이후 잔여 마크업/푸터 절단.
+
+    끝.이 표 셀 안에 있던 문서는 마지막 줄에 태그 조각이 남으므로 제거.
+    """
+    m = END_RE.search(body)
+    if m:
+        body = body[:m.end()].strip()
+    lines = body.splitlines()
+    if lines and "<" in lines[-1]:
+        lines[-1] = re.sub(r"<[^>]+>", " ", lines[-1])
+        lines[-1] = re.sub(r"\s{2,}", " ", lines[-1]).strip()
+        body = "\n".join(lines).strip()
+    return body
+
+
 def strip_title_tail(body: str, title: str) -> str:
     """여러 줄로 감긴 제목의 꼬리가 본문 첫 줄에 남는 경우 제거."""
     lines = body.splitlines()
@@ -99,7 +115,7 @@ def main() -> int:
         body = extract_body(md)
         title = (m.get("title") or "").strip()
         if body is not None:
-            body = strip_title_tail(body, title)
+            body = truncate_at_end(strip_title_tail(body, title))
             if len(body) < 80:
                 body = None
         if body is None:
