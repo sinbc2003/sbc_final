@@ -48,6 +48,21 @@ def _normalize_edges(edges: list[dict]) -> list[dict]:
     return result
 
 
+def _collect_output_files(result) -> list[dict]:
+    """실행 결과 중 실제 파일 경로인 출력만 추려 메타 반환 (양 경로 공용)."""
+    files = []
+    for outputs in result.outputs.values():
+        for val in outputs.values():
+            try:
+                if isinstance(val, str) and Path(val).is_file():
+                    p = Path(val)
+                    files.append({"name": p.name, "path": str(p),
+                                  "size": p.stat().st_size, "ext": p.suffix.lower()})
+            except (OSError, ValueError):
+                continue
+    return files
+
+
 @router.post("/api/run")
 async def run_workflow(req: RunRequest):
     started = datetime.now().isoformat(timespec="seconds")
@@ -60,7 +75,8 @@ async def run_workflow(req: RunRequest):
         workflow = Workflow.from_json(wf_data)
         run_config = {"output_dir": deps.settings_mgr.get("general.output_dir", "")}
         runner = PipelineRunner(registry=deps.registry, llm_manager=deps.llm_manager, config=run_config)
-        result = runner.run(workflow, req.initial_inputs or None)
+        # 동기 runner.run을 스레드로 — 이벤트 루프 블로킹 방지(실행 중 서버 정지 해소).
+        result = await asyncio.to_thread(runner.run, workflow, req.initial_inputs or None)
 
         record = ExecutionRecord(
             id=f"run_{int(time.time())}_{uuid.uuid4().hex[:4]}",
@@ -71,11 +87,7 @@ async def run_workflow(req: RunRequest):
         )
         deps.store.add_history(record)
 
-        output_files = []
-        for nid, outputs in result.outputs.items():
-            for port, val in outputs.items():
-                if isinstance(val, str) and Path(val).is_file():
-                    output_files.append({"name": Path(val).name, "path": str(val), "size": Path(val).stat().st_size, "ext": Path(val).suffix.lower()})
+        output_files = _collect_output_files(result)
 
         if result.success and output_files:
             import os, platform as _pf
@@ -135,9 +147,20 @@ async def run_workflow_stream(req: RunRequest):
                 errors=result.errors, node_timings=result.node_timings,
             )
             deps.store.add_history(record)
+            output_files = _collect_output_files(result)
+            if result.success and output_files:
+                import os as _os, platform as _pf
+                for f in output_files:
+                    try:
+                        if _pf.system() == "Windows":
+                            _os.startfile(f["path"])
+                        elif _pf.system() == "Darwin":
+                            import subprocess as _sp; _sp.Popen(["open", f["path"]])
+                    except Exception:
+                        pass
             q.put({"event": "done", "success": result.success, "errors": result.errors,
                    "elapsed_seconds": result.elapsed_seconds, "node_timings": result.node_timings,
-                   "history_id": record.id,
+                   "history_id": record.id, "output_files": output_files,
                    "outputs": {nid: {port: str(val)[:1000] for port, val in outputs.items()} for nid, outputs in result.outputs.items()}})
         except Exception as e:
             q.put({"event": "error", "message": str(e)})

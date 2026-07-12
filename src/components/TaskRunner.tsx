@@ -210,7 +210,11 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           if (evt.event === "done") {
             setOutputs(evt.outputs || {});
             setStatus(evt.success ? "done" : "error");
-            if (!evt.success) setError("일부 노드에서 오류가 발생했습니다.");
+            // 엔진의 구체적 한국어 오류를 그대로 노출(범용 문구로 뭉개지 않음).
+            if (!evt.success) {
+              const errs = (evt.errors || []) as string[];
+              setError(errs.length ? errs.join("\n") : "일부 노드에서 오류가 발생했습니다.");
+            }
           }
           if (evt.event === "error") {
             setStatus("error");

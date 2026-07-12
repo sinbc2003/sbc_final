@@ -306,6 +306,13 @@ export const useStore = create<AppState>((set, get) => ({
           if (evt.event === "done") {
             set({ executionOutputs: evt.outputs || {} });
             setExecutionStatus(evt.success ? "done" : "error");
+            // 완료 시 아직 'running'인 노드는 실패로 마감 — 실패 노드가
+            // 영원히 스피너로 남는 문제 해소(done엔 실패 노드 개별 신호가 없음).
+            for (const n of get().nodes) {
+              if (n.data?.status === "running") {
+                setNodeStatus(n.id, "error", 0, "실행 중단됨");
+              }
+            }
             for (const err of evt.errors || []) {
               set((s) => ({
                 executionLogs: [
