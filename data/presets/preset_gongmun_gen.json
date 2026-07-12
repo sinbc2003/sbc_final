@@ -1,0 +1,53 @@
+{
+  "id": "preset_gongmun_gen",
+  "name": "공문 초안 작성기",
+  "version": "1.0.0",
+  "description": "공문 제목만 입력하면 학습된 공문 AI(LoRA)가 기안문 형식의 본문을 작성하고 한글 문서(HWPX)로 저장합니다.",
+  "nodes": [
+    {
+      "id": "title_input",
+      "type": "text_input",
+      "params": { "content": "" },
+      "position": { "x": 100, "y": 200 }
+    },
+    {
+      "id": "gongmun_gen",
+      "type": "llm_generate",
+      "params": {
+        "prompt_template": "다음 제목으로 학교 공문(기안문) 본문을 작성하라.\n\n[제목]\n{{입력텍스트}}",
+        "lora": "gongmun",
+        "provider": "local",
+        "max_tokens": 700,
+        "temperature": 0.3
+      },
+      "position": { "x": 420, "y": 200 }
+    },
+    {
+      "id": "to_hwpx",
+      "type": "md_to_hwpx",
+      "params": { "output_name": "공문_초안" },
+      "position": { "x": 740, "y": 200 }
+    }
+  ],
+  "edges": [
+    { "from": "title_input", "from_port": "텍스트", "to": "gongmun_gen", "to_port": "입력텍스트" },
+    { "from": "gongmun_gen", "from_port": "출력텍스트", "to": "to_hwpx", "to_port": "텍스트" }
+  ],
+  "user_inputs": [
+    {
+      "node_id": "title_input",
+      "param": "content",
+      "label": "공문 제목",
+      "kind": "text",
+      "placeholder": "예: 2026학년도 겨울방학 독서캠프 운영 계획"
+    }
+  ],
+  "_meta": {
+    "id": "preset_gongmun_gen",
+    "name": "공문 초안 작성기",
+    "description": "공문 제목만 입력하면 학습된 공문 AI(LoRA)가 기안문 형식의 본문을 작성하고 한글 문서(HWPX)로 저장합니다.",
+    "tags": ["프리셋", "공문", "생성", "LoRA", "HWPX"],
+    "thumbnail_nodes": ["text_input", "llm_generate", "md_to_hwpx"],
+    "builtin": true
+  }
+}

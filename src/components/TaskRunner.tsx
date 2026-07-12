@@ -22,6 +22,7 @@ interface UserInput {
   kind: "file" | "text";
   accept?: string[];
   value: string;
+  placeholder?: string;
 }
 
 type RunStatus = "idle" | "running" | "done" | "error";
@@ -34,6 +35,24 @@ interface LogEntry {
 
 /* ── 프리셋에서 사용자 입력 추출 ── */
 function extractUserInputs(preset: PresetFull): UserInput[] {
+  // 프리셋이 user_inputs 메타를 선언했으면 그 라벨/설명을 그대로 사용
+  // (범용 '파일 입력/텍스트 입력' 라벨 대신 '공문 제목' 등 의미 있는 라벨).
+  const declared = (preset as any).user_inputs;
+  if (Array.isArray(declared) && declared.length > 0) {
+    return declared.map((u: any) => {
+      const node = preset.nodes.find((n) => n.id === u.node_id);
+      const kind: "file" | "text" =
+        u.kind || (node?.type === "file_input" ? "file" : "text");
+      return {
+        nodeId: u.node_id,
+        nodeType: node?.type || "text_input",
+        label: u.label || (kind === "file" ? "파일 입력" : "텍스트 입력"),
+        kind,
+        value: kind === "text" ? (node?.params?.content || "") : "",
+        placeholder: u.placeholder,
+      };
+    });
+  }
   const inputs: UserInput[] = [];
   for (const node of preset.nodes) {
     if (node.type === "file_input") {
@@ -348,7 +367,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
                   value={inp.value}
                   onChange={(e) => updateInput(idx, e.target.value)}
                   rows={4}
-                  placeholder="내용을 입력하세요..."
+                  placeholder={inp.placeholder || "내용을 입력하세요..."}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-[13px]
                     text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-300
                     resize-y placeholder:text-gray-400"
