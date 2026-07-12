@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import sys
 from collections import Counter
 
@@ -27,6 +28,15 @@ PROMPT_TEMPLATES = [
     "'{title}' 제목의 공문 본문을 개조식으로 작성하라.",
     "학교 행정 문서 작성: 아래 건의 기안문 본문을 작성하라.\n\n건명: {title}",
 ]
+
+# v2: 첨부 보고서·계획서 (유형 명시 지시문 — 공문과 한 어댑터에서 유형 구분 학습)
+REPORT_PROMPT_TEMPLATES = [
+    "다음 제목으로 학교 운영 계획서/보고서 본문을 작성하라.\n\n[제목]\n{title}",
+    "'{title}' 계획서(보고서) 문서 본문을 장·절 구조로 작성하라.",
+    "학교 내부 문서 작성: 아래 건의 계획·보고 문서 본문을 작성하라.\n\n건명: {title}",
+]
+REPORT_TITLE_RE = re.compile(r"계획|보고서|결과|운영안|방안|협의록")
+REPORT_EXCLUDE_RE = re.compile(r"서식|양식|명부|명단|조사표|점검표|신청서|동의서|가정통신문")
 
 
 _ESCAPES = [("\\.", "."), ("\\[", "["), ("\\]", "]"), ("\\(", "("),
@@ -91,8 +101,43 @@ def main() -> int:
             "prompt": tpl.format(title=row["title"]),
             "completion": md,
             "meta": {"idx": row["idx"], "kind": row["kind"],
-                     "folder": row["folder"], "title": row["title"]},
+                     "folder": row["folder"], "title": row["title"],
+                     "type": "gongmun"},
         })
+
+    # v2: 첨부 보고서·계획서 편입 (유형 명시 지시문)
+    n_report = 0
+    for idx, row in manifest.items():
+        if row["kind"] != "첨부":
+            continue
+        title = row["title"]
+        if not REPORT_TITLE_RE.search(title) or REPORT_EXCLUDE_RE.search(title):
+            continue
+        if not status.get(idx, {}).get("ok"):
+            continue
+        p = ANON_DIR / f"{idx:05d}.md"
+        if not p.exists():
+            drops["보고서:md없음"] += 1
+            continue
+        md = clean_md(p.read_text(encoding="utf-8"))
+        if len(md) < 300:
+            drops["보고서:짧음"] += 1
+            continue
+        if len(md) > MAX_CHARS:
+            drops["보고서:초과길이"] += 1
+            continue
+        if table_ratio(md) > TABLE_RATIO_MAX:
+            drops["보고서:표위주"] += 1
+            continue
+        tpl = rng.choice(REPORT_PROMPT_TEMPLATES)
+        examples.append({
+            "prompt": tpl.format(title=title),
+            "completion": md,
+            "meta": {"idx": idx, "kind": "첨부", "folder": row["folder"],
+                     "title": title, "type": "report"},
+        })
+        n_report += 1
+    print(f"보고서·계획서 편입: {n_report}쌍")
 
     rng.shuffle(examples)
     n_val = max(1, len(examples) // 20)
