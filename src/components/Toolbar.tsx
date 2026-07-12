@@ -70,6 +70,28 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
     }
   }, [workflowId, workflowName, saveWorkflow, saveAsWorkflow]);
 
+  // 현재 워크플로우를 홈 화면 카드(프리셋)로 등록 — 백엔드 route는 있었으나
+  // UI 진입점이 없었음. 저장 안 된 상태면 먼저 저장하도록 안내.
+  const handleRegisterPreset = useCallback(async () => {
+    setSaveMenuOpen(false);
+    let wid = useStore.getState().workflowId;
+    if (!wid) {
+      const name = prompt("먼저 워크플로우를 저장합니다. 이름:", workflowName);
+      if (!name) return;
+      await saveAsWorkflow(name);
+      wid = useStore.getState().workflowId;
+    } else if (useStore.getState().dirty) {
+      await saveWorkflow();
+    }
+    if (!wid) return;
+    try {
+      const r = await fetch(`/api/workflows/${wid}/preset`, { method: "POST" });
+      alert(r.ok ? "홈 화면에 카드로 등록되었습니다." : "등록에 실패했습니다.");
+    } catch {
+      alert("등록에 실패했습니다.");
+    }
+  }, [workflowName, saveAsWorkflow, saveWorkflow]);
+
   const handleSaveAs = useCallback(async () => {
     const name = prompt("새 이름으로 저장:", workflowName);
     if (name) await saveAsWorkflow(name);
@@ -132,6 +154,11 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
                   <button onClick={handleSaveAs}
                     className="block w-full text-left px-3 py-1.5 text-[12px] text-gray-600 hover:bg-gray-50">
                     다른 이름으로 저장
+                  </button>
+                  <div className="h-px bg-gray-100 my-1" />
+                  <button onClick={handleRegisterPreset}
+                    className="block w-full text-left px-3 py-1.5 text-[12px] text-gray-600 hover:bg-gray-50">
+                    홈 카드로 등록
                   </button>
                 </div>
               </>

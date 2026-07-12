@@ -9,6 +9,7 @@ interface ModelInfo {
   name: string;
   provider: string;
   available?: boolean;
+  active?: boolean;
 }
 
 type RunStatus = "idle" | "running" | "done" | "error";
@@ -43,8 +44,9 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
     fetch("/api/models")
       .then((r) => r.json())
       .then((data: ModelInfo[]) => {
-        // local 제외, API 모델만
-        setModels(data.filter((m) => m.provider !== "local"));
+        // 로컬(공문 LoRA 포함) + API 모두 노출 — 로컬 모델을 제외하면
+        // API 키 없는 교사는 '자동'만 쓸 수 있어 LoRA가 영영 안 걸렸음.
+        setModels(data);
       })
       .catch(() => {});
   }, []);
@@ -305,6 +307,15 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
                 focus:outline-none focus:ring-2 focus:ring-amber-200 appearance-none bg-white pr-8"
             >
               <option value="auto">자동 (사용 가능한 모델)</option>
+              {models.filter((m) => m.provider === "local").length > 0 && (
+                <optgroup label="로컬 (오프라인)">
+                  {models.filter((m) => m.provider === "local").map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}{m.active ? " ✓" : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
               {(["openai", "claude", "gemini"] as const).map((prov) => {
                 const group = models.filter((m) => m.provider === prov);
                 if (group.length === 0) return null;
