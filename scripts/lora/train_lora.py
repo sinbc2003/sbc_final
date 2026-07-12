@@ -106,6 +106,8 @@ def main() -> int:
     ap.add_argument("--no-eval", action="store_true",
                     help="에폭 평가 생략 + 스텝 저장(28) — 스필 상태에서 평가 배치가 "
                          "메모리 스파이크로 무음사(無音死)하는 것 방지(§25 실측)")
+    ap.add_argument("--resume", default=None,
+                    help="체크포인트 경로에서 재개 (무음사 후 이어달리기)")
     args = ap.parse_args()
 
     import torch
@@ -237,7 +239,7 @@ def main() -> int:
     trainer = Trainer(model=model, args=targs,
                       train_dataset=train_ds, eval_dataset=val_ds,
                       data_collator=collate(tokenizer))
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume)
 
     final = Path(args.out) / "final"
     model.save_pretrained(str(final))
