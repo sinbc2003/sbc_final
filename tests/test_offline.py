@@ -448,6 +448,48 @@ def t_port_repair():
     check("오류에 가능한 포트 안내", any("가능:" in e and "출력" in e for e in e3))
 
 
+# ── 13. 깨진 워크플로우 JSON 복구 (후행 콤마·절단·스마트 따옴표) ──
+def t_json_recovery():
+    print("[json recovery]")
+    from engine.chat.workflow import (
+        parse_workflow_response, parse_workflow_envelope, looks_like_workflow_attempt,
+    )
+
+    good = ('{"name":"a","nodes":[{"id":"n1","type":"text_input","params":{}}],'
+            '"edges":[]}')
+    check("정상 JSON", parse_workflow_response(good) is not None)
+
+    trailing = ('```json\n{"name":"a","nodes":[{"id":"n1","type":"text_input",'
+                '"params":{},},],"edges":[],}\n```')
+    check("후행 콤마 복구", parse_workflow_response(trailing) is not None)
+
+    smart = '{“name”:“a”,“nodes”:[{“id”:“n1”,“type”:“text_input”,“params”:{}}],“edges”:[]}'
+    check("스마트 따옴표 복구", parse_workflow_response(smart) is not None)
+
+    # max_tokens 절단 — 닫는 펜스 없음, 마지막 엣지가 문자열 중간에서 끊김
+    cut = ('```json\n{"name":"a","nodes":[{"id":"n1","type":"text_input","params":{}},'
+           '{"id":"n2","type":"llm_summarize","params":{}}],'
+           '"edges":[{"from":"n1","from_port":"텍스트","to":"n2","to_port":"입력텍스트"},'
+           '{"from":"n2","from_po')
+    r = parse_workflow_response(cut)
+    check("절단 JSON 복구(완성된 원소만)",
+          r is not None and len(r["nodes"]) == 2 and len(r["edges"]) == 1
+          and r["edges"][0]["to_port"] == "입력텍스트")
+
+    # 필수 키(edges)까지 잘려나간 절단은 살리지 않는다 → 재시도 경로로
+    cut2 = '```json\n{"name":"a","nodes":[{"id":"n1","type":"text_input","params":{}},{"id":"n2'
+    check("복구 불가 절단은 None(재시도 경로)", parse_workflow_response(cut2) is None)
+
+    check("일반 텍스트는 None", parse_workflow_response("워크플로우는 이렇게 만듭니다") is None)
+    check("시도 감지: 깨진 JSON", looks_like_workflow_attempt(cut) is True)
+    check("시도 감지: 일반 답변", looks_like_workflow_attempt("노드를 연결하면 됩니다") is False)
+
+    envc = ('{"응답":"만들었습니다","워크플로우":{"name":"a","nodes":'
+            '[{"id":"n1","type":"text_input","params":{}},],"edges":[],}}')
+    e = parse_workflow_envelope(envc)
+    check("envelope도 관대한 파싱", e is not None and e[1] is not None)
+
+
 # ── 12. 프리셋 무결성 (홈 카드가 곧바로 실행 가능한가) ──
 def t_presets():
     print("[presets]")
@@ -482,7 +524,7 @@ def t_presets():
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
                t_grid_roundtrip, t_verify_retry, t_chunking, t_cancel, t_workflow_envelope,
-               t_port_repair, t_presets):
+               t_port_repair, t_presets, t_json_recovery):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

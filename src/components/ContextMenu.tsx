@@ -6,8 +6,12 @@ import {
 import { useStore } from "../store";
 
 export interface ContextMenuState {
+  /** 메뉴를 띄울 화면 좌표 (clientX/clientY) */
   x: number;
   y: number;
+  /** 같은 지점의 캔버스(flow) 좌표 — 팬·줌 상태에서도 클릭한 자리에 노드를 놓기 위함 */
+  flowX?: number;
+  flowY?: number;
   type: "pane" | "node" | "edge" | "selection";
   nodeId?: string;
   edgeId?: string;
@@ -122,14 +126,17 @@ export function ContextMenu({ menu, onClose }: Props) {
       }, danger: true },
     );
   } else {
-    // 빈 캔버스 우클릭
+    // 빈 캔버스 우클릭 — flow 좌표가 있으면 그것을, 없으면 기존 동작 유지
+    const addPos = { x: menu.flowX ?? menu.x, y: menu.flowY ?? menu.y };
     items.push(
       { label: "전체 선택", icon: SquareDashedMousePointer, action: selectAll },
       { label: "실행", icon: Play, action: () => runWorkflow(), disabled: nodes.length === 0 },
       { label: "", icon: null, action: () => {}, divider: true },
-      { label: "파일 입력 추가", icon: FileText, action: () => addNode("file_input", { x: menu.x, y: menu.y }) },
-      { label: "텍스트 입력 추가", icon: AlignLeft, action: () => addNode("text_input", { x: menu.x, y: menu.y }) },
-      { label: "LLM 생성 추가", icon: AlignCenter, action: () => addNode("llm_generate", { x: menu.x, y: menu.y }) },
+      // 화면 좌표(menu.x/y)를 그대로 넘기면 팬·줌 상태에서 클릭 지점과 무관한
+      // 곳(화면 밖 포함)에 생겨 '추가가 안 됐다'고 오해한다 → flow 좌표 사용.
+      { label: "파일 입력 추가", icon: FileText, action: () => addNode("file_input", addPos) },
+      { label: "텍스트 입력 추가", icon: AlignLeft, action: () => addNode("text_input", addPos) },
+      { label: "LLM 생성 추가", icon: AlignCenter, action: () => addNode("llm_generate", addPos) },
     );
   }
 

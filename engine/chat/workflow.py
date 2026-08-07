@@ -186,11 +186,8 @@ def parse_workflow_envelope(text: str) -> tuple[str, dict | None] | None:
     m = re.search(r"```(?:json)?\s*\n?(.*?)```", s, re.DOTALL)
     if m:
         s = m.group(1).strip()
-    try:
-        data = json.loads(s)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict) or "응답" not in data or "워크플로우" not in data:
+    data = _loads_lenient(s)
+    if data is None or "응답" not in data or "워크플로우" not in data:
         return None
 
     reply = str(data.get("응답") or "")
@@ -206,23 +203,98 @@ def parse_workflow_envelope(text: str) -> tuple[str, dict | None] | None:
     return reply, wf
 
 
+_TRAILING_COMMA = re.compile(r",\s*([}\]])")
+
+
+def _close_unterminated(s: str) -> str | None:
+    """max_tokens 절단으로 끊긴 JSON을 **완성된 원소까지만** 살려 닫는다.
+
+    마지막으로 정상 종료된 괄호 위치까지 자르고, 그 시점의 열린 괄호를 닫는다.
+    반쯤 쓰인 원소(문자열 중간 절단 포함)는 버린다. 살린 결과가 워크플로우로서
+    부족하면(예: edges 키 자체가 잘려나감) 상위 파서가 None을 내고 재시도로 간다.
+    """
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    last_close = -1              # 문자열 밖에서 괄호가 닫힌 마지막 위치
+    stack_at_last_close: list[str] = []
+    for i, ch in enumerate(s):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if not stack:
+                return None      # 구조가 깨짐 — 손대지 않는다
+            stack.pop()
+            last_close = i
+            stack_at_last_close = list(stack)
+    if not stack:
+        return None              # 이미 닫혀 있음 (다른 원인의 실패)
+    if last_close < 0:
+        return None
+    return s[:last_close + 1] + "".join(reversed(stack_at_last_close))
+
+
+def _loads_lenient(candidate: str) -> dict | None:
+    """소형모델·API가 흔히 내는 사소한 JSON 흠을 교정해 파싱한다."""
+    attempts = [candidate]
+    # 후행 콤마 + 스마트 따옴표
+    fixed = _TRAILING_COMMA.sub(r"\1", candidate)
+    fixed = (fixed.replace("“", '"').replace("”", '"')
+                  .replace("‘", "'").replace("’", "'"))
+    attempts.append(fixed)
+    # 토큰 한도로 끊긴 경우
+    closed = _close_unterminated(fixed)
+    if closed:
+        attempts.append(_TRAILING_COMMA.sub(r"\1", closed))
+
+    for a in attempts:
+        try:
+            data = json.loads(a)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def looks_like_workflow_attempt(text: str) -> bool:
+    """워크플로우를 만들려다 형식이 깨진 응답인가 (일반 텍스트 답변과 구분)."""
+    t = text or ""
+    return ("```" in t or "{" in t) and ('"nodes"' in t or "'nodes'" in t or '"edges"' in t)
+
+
 def parse_workflow_response(text: str) -> dict | None:
     """LLM 응답에서 WorkflowJSON 추출. Returns dict or None."""
-    # ```json ... ``` 블록 추출
+    # ```json ... ``` 블록 추출 (닫는 펜스가 잘렸을 수도 있어 폴백 포함)
     match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     if match:
         candidate = match.group(1).strip()
     else:
-        # JSON 객체 직접 탐색
-        brace_start = text.find("{")
-        brace_end = text.rfind("}")
-        if brace_start == -1 or brace_end == -1:
-            return None
-        candidate = text[brace_start:brace_end + 1]
+        open_fence = re.search(r"```(?:json)?\s*\n?", text)
+        if open_fence and "{" in text[open_fence.end():]:
+            candidate = text[open_fence.end():].strip()
+        else:
+            # JSON 객체 직접 탐색
+            brace_start = text.find("{")
+            brace_end = text.rfind("}")
+            if brace_start == -1:
+                return None
+            candidate = (text[brace_start:brace_end + 1] if brace_end > brace_start
+                         else text[brace_start:])
 
-    try:
-        data = json.loads(candidate)
-    except json.JSONDecodeError:
+    data = _loads_lenient(candidate)
+    if data is None:
         return None
 
     # 필수 필드 검증
@@ -508,6 +580,41 @@ def handle_chat(
         reply, workflow = env[0] or reply, env[1]
     else:
         workflow = parse_workflow_response(reply)
+
+        # 형식이 깨졌는데(=워크플로우를 만들려던 응답) 관대한 파서로도 못 살리면
+        # 온도를 낮춰 1회만 재시도한다. 그래도 실패하면 깨진 JSON 덩어리를
+        # 그대로 보여주지 않고 무엇을 하면 되는지 알려준다.
+        if workflow is None and looks_like_workflow_attempt(reply):
+            _log.info("워크플로우 JSON 파싱 실패 — 저온 재시도 1회")
+            retry_messages = messages + [
+                {"role": "assistant", "content": reply[:2000]},
+                {"role": "user", "content":
+                 "직전 응답의 JSON 형식이 올바르지 않아 읽지 못했습니다. "
+                 "설명 없이 유효한 JSON 하나만 다시 출력해 주세요."},
+            ]
+            try:
+                reply2 = llm_manager.generate_chat(
+                    retry_messages, max_tokens=4096, temperature=0.1,
+                    provider=provider, model=model_name, json_schema=envelope_schema,
+                )
+            except Exception:
+                reply2 = ""
+            if reply2:
+                env2 = parse_workflow_envelope(reply2)
+                if env2 is not None:
+                    reply, workflow = env2[0] or reply2, env2[1]
+                else:
+                    workflow = parse_workflow_response(reply2)
+                    if workflow is not None:
+                        reply = reply2
+            if workflow is None:
+                return {
+                    "reply": ("워크플로우 형식을 만드는 데 실패했습니다. "
+                              "요청을 더 짧게 나누거나(예: 단계 3개 이하), "
+                              "쓰고 싶은 파일 형식을 함께 적어 다시 시도해 주세요."),
+                    "workflow_id": None,
+                    "workflow_json": None,
+                }
 
     # 5. 워크플로우가 있으면 포트 보정 → 검증 후 저장
     if workflow:

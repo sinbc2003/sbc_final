@@ -187,9 +187,12 @@ export function FlowCanvas() {
   const onPaneContextMenu = useCallback(
     (e: MouseEvent | React.MouseEvent) => {
       e.preventDefault();
-      setContextMenu({ x: (e as any).clientX, y: (e as any).clientY, type: "pane" });
+      const x = (e as any).clientX, y = (e as any).clientY;
+      // 메뉴는 화면 좌표에, 노드는 같은 지점의 flow 좌표에 놓는다(onDrop과 동일한 규칙)
+      const flow = screenToFlowPosition({ x, y });
+      setContextMenu({ x, y, flowX: flow.x, flowY: flow.y, type: "pane" });
     },
-    []
+    [screenToFlowPosition]
   );
 
   /* ── 키보드 ─────────────────────────────────── */

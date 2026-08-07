@@ -3,6 +3,7 @@ import {
   ArrowLeft, Upload, Play, Loader2, CheckCircle2, AlertCircle,
   FileText, Copy, Check, FolderOpen, X, File, Square, Ban,
 } from "lucide-react";
+import { friendlyLogMessage, isErrorLog } from "../logMessage";
 
 /* ── 타입 ── */
 interface PresetFull {
@@ -127,6 +128,11 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  // 단계 진행률 — 백엔드는 노드별 progress를 이미 보내고 있었는데
+  // 정작 비개발자용 화면에는 표시가 없었다.
+  const [doneNodes, setDoneNodes] = useState<string[]>([]);
+  const [currentStep, setCurrentStep] = useState<string>("");
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   /* 프리셋 로드 */
@@ -187,6 +193,9 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
     setOutputs({});
     setError(null);
     setRunId(null);
+    setTruncated(false);
+    setDoneNodes([]);
+    setCurrentStep("");
 
     // 프리셋에 사용자 입력 주입
     const wf = JSON.parse(JSON.stringify(preset));
@@ -237,6 +246,14 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           if (evt.event === "run_started") {
             setRunId(evt.run_id || null);
           }
+          if (evt.event === "node_progress") {
+            const name = evt.node_name || evt.node_id;
+            if (evt.progress >= 1) {
+              setDoneNodes((prev) => prev.includes(evt.node_id) ? prev : [...prev, evt.node_id]);
+            } else {
+              setCurrentStep(name);
+            }
+          }
           if (evt.event === "node_log") {
             setLogs((prev) => [...prev, {
               nodeName: evt.node_name || evt.node_id,
@@ -247,6 +264,8 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           if (evt.event === "done") {
             setOutputs(evt.outputs || {});
             setRunId(null);
+            setCurrentStep("");
+            setTruncated(!!evt.outputs_truncated);
             setStatus(evt.cancelled ? "cancelled" : evt.success ? "done" : "error");
             // 엔진의 구체적 한국어 오류를 그대로 노출(범용 문구로 뭉개지 않음).
             if (evt.cancelled) {
@@ -312,6 +331,12 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
       </div>
     );
   }
+
+  /* ── 진행률 ── */
+  const totalSteps = preset.nodes.length;
+  const progressPct = totalSteps > 0
+    ? Math.min(100, Math.round((doneNodes.length / totalSteps) * 100))
+    : 0;
 
   /* ── 결과 출력 파싱 ── */
   const outputEntries: { nodeId: string; portName: string; value: string }[] = [];
@@ -469,6 +494,30 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           )}
         </div>
 
+        {/* ── 단계 진행률 ── */}
+        {(status === "running" || (status !== "idle" && totalSteps > 0 && doneNodes.length > 0)) && (
+          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[12px] font-semibold text-gray-700">
+                {doneNodes.length}/{totalSteps} 단계
+                {status === "running" && currentStep && (
+                  <span className="ml-2 font-normal text-gray-500">현재: {currentStep}</span>
+                )}
+              </span>
+              <span className="text-[12px] text-gray-400">{progressPct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${
+                  status === "error" ? "bg-red-400"
+                    : status === "cancelled" ? "bg-gray-400"
+                    : status === "done" ? "bg-emerald-500" : "bg-amber-500"}`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* ── 로그 ── */}
         {logs.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
@@ -481,7 +530,9 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
                 <div key={i} className="flex items-start gap-2 text-[12px]">
                   <span className="text-gray-400 flex-shrink-0 font-mono">{fmtTime(log.timestamp)}</span>
                   <span className="text-amber-600 flex-shrink-0 font-medium">{log.nodeName}</span>
-                  <span className="text-gray-600">{log.message}</span>
+                  <span className={isErrorLog(log.message) ? "text-red-600" : "text-gray-600"}>
+                    {friendlyLogMessage(log.message)}
+                  </span>
                 </div>
               ))}
               <div ref={logsEndRef} />
@@ -537,6 +588,14 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
             <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
               <span className="text-[12px] font-semibold text-gray-600">출력 텍스트</span>
             </div>
+            {truncated && (
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+                <AlertCircle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <span className="text-[12px] text-amber-800">
+                  내용이 길어 화면에는 일부만 표시됩니다. 전체 내용은 생성된 파일을 열어 확인하세요.
+                </span>
+              </div>
+            )}
             <div className="divide-y divide-gray-50">
               {outputTexts.map((o, i) => (
                 <div key={i} className="px-4 py-3">

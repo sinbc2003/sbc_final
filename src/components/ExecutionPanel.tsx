@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useStore } from "../store";
 import { getCategoryColor } from "../constants";
+import { friendlyLogMessage, isErrorLog, isWarnLog } from "../logMessage";
 
 /* ── 시간 포맷 ───────────────────────────────────── */
 function fmtTime(ts: number): string {
@@ -151,6 +152,7 @@ export function ExecutionPanel() {
   const executionStatus = useStore((s) => s.executionStatus);
   const logs = useStore((s) => s.executionLogs);
   const outputs = useStore((s) => s.executionOutputs);
+  const truncated = useStore((s) => s.executionTruncated);
   const panelOpen = useStore((s) => s.executionPanelOpen);
   const togglePanel = useStore((s) => s.toggleExecutionPanel);
   const currentRunId = useStore((s) => s.currentRunId);
@@ -273,18 +275,12 @@ export function ExecutionPanel() {
               {logs.map((log, i) => {
                 const cat = catMap.get(log.nodeId) ?? "";
                 const color = log.nodeId === "SYSTEM" ? "#ef4444" : getCategoryColor(cat);
-                const isError = log.message.startsWith("[오류]") || log.message.startsWith("[치명적 오류]") || log.message.startsWith("[ERROR]");
-                const isWarn = log.message.startsWith("[WARN]");
+                const isError = isErrorLog(log.message);
+                const isWarn = isWarnLog(log.message);
                 const isComplete = log.message.startsWith("완료") || log.message.includes("완료");
                 const isSave = log.message.startsWith("저장:");
 
-                // 메시지 친화적 변환
-                let friendlyMsg = log.message
-                  .replace("[ERROR] ", "")
-                  .replace("[WARN] ", "")
-                  .replace("pymupdf로 변환", "문서 읽는 중")
-                  .replace("ZIP+XML 파싱으로 변환", "문서 읽는 중")
-                  .replace("pypandoc-hwpx로 변환 완료", "한글 파일 생성 완료");
+                const friendlyMsg = friendlyLogMessage(log.message);
 
                 return (
                   <div key={i} className={`flex items-center gap-2 py-1 px-2 rounded-md text-[11px]
@@ -311,6 +307,16 @@ export function ExecutionPanel() {
           ) : (
             /* 출력 탭 */
             <div className="p-3 space-y-2">
+              {truncated && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10
+                  border border-amber-500/30 text-[11px] text-amber-300">
+                  <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+                  <span>
+                    출력이 길어 화면에는 일부만 표시됩니다. 전체 내용은 아래 「생성된 파일」로
+                    저장된 결과를 열어 확인하세요.
+                  </span>
+                </div>
+              )}
               {outputEntries.length === 0 ? (
                 <p className="text-[12px] text-gray-500 text-center py-6">
                   {isRunning ? "실행 중..." : "출력 없음"}

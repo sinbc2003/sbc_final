@@ -982,8 +982,13 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 **검증**: 오프라인 **91 PASS/0 FAIL**(프리셋 무결성 검사 신설 — 5종 연결·포트·타입 + user_inputs 대상 노드/파라미터 실재). 프리셋 3종 E2E(PipelineRunner 직접 호출, 자동 열기 부작용 회피): 가정통신문 = 오늘 날짜 정확·없는 사실 미생성·HWPX 8.9KB / 계획서 = DOCX 37KB + HWPX 9.5KB / 명단 = 국→국어·수→수학 반영, 값 무변경. 취소 E2E(HTTP): run_id 발급 → cancel → `cancelled=True`, 레지스트리 정리, 미취소 실행은 정상 성공. 공문 프리셋 회귀 통과(LoRA 적용 유지).
 **관찰(미적용)**: 공문 프롬프트에 날짜 힌트를 넣으면 연도는 2026으로 맞지만 1회 샘플에서 반복 문구가 늘었다 → 검증된 프리셋이라 **변경하지 않음**. LoRA 기관명 편향·관련 번호 후처리는 §25 기록대로 유지.
 
+### ⑦ M/S 4건 (2026-08-07 이어서)
+- **출력 1000자 무음 절단 제거**: `_pack_outputs()`로 한도 **20000자** + `outputs_truncated` 플래그(양 엔드포인트 공용). ExecutionPanel·TaskRunner에 "일부만 표시 — 파일을 열어 확인" 배너. 실측: 6000자 전량 전송(truncated=False), 25000자 → 20000자+플래그.
+- **TaskRunner 단계 진행률**: 이미 오고 있던 `node_progress`를 소비해 **N/M 단계 + 현재 단계명 + 진행 바**. 로그 문구 변환은 `src/logMessage.ts`로 공용화(ExecutionPanel과 동일 표현).
+- **깨진 워크플로우 JSON 복구·안내**: `_loads_lenient`(후행 콤마·스마트 따옴표·**토큰 절단 시 완성된 원소까지만 살려 닫기**) → 그래도 실패하고 워크플로우 시도로 보이면 **온도 0.1로 1회 재시도** → 최종 실패 시 깨진 원문 대신 "요청을 더 짧게 나누세요" 안내. 필수 키까지 잘린 절단은 일부러 살리지 않고 재시도로 보낸다(반쪽 워크플로우 저장 방지).
+- **우클릭 노드 추가 좌표**: `onPaneContextMenu`에서 `screenToFlowPosition`을 계산해 `ContextMenuState.flowX/flowY`로 전달(onDrop과 같은 규칙). 팬·줌 상태에서 화면 밖에 노드가 생기던 문제 해소.
+
 ### ⏭️ 다음 세션 (§26 잔여)
-**M/S**: 스트림 출력 1000자 무음 절단(`execution.py`) · TaskRunner node_progress 미사용(단계 진행률) · JSON 파싱 실패 원문 노출 · 우클릭 노드추가 좌표 미변환(`ContextMenu.tsx:129`)
 **M/M**: 실행 이력 재사용/node_timings 형식 · FormAssist 채팅 로직 2곳 중복(`routes/chat.py:61`) · defaultNodes 드리프트(yaml 생성기) · llm_generate LoRA 자유텍스트(어댑터 목록 API)
 **이번에 발견(백로그 밖, 미수정)**: `StatusBar.tsx:34`가 **없는 엔드포인트 `/api/rag/stats`를 10초마다 폴링**(초기 커밋부터 — `engine/routes/rag.py`엔 ingest/query/export/import만 있다). 조용히 404라 RAG 문서 수 표시가 처음부터 죽어 있었다. 라우트 추가(`vector_store` 문서 수) 또는 폴링 제거 중 택1.
 ※ 이번에 함께 해소된 항목: **입력 포트 다중 연결**(M/S) · **모델 미지정 openai 하드코딩 폴백**(M/S) · **from_port 누락 KeyError→HTTP 500**(M/S, `Workflow.from_json`을 관대하게 + 노드 id 없으면 명확한 ValueError) · **채팅 history 무제한 누적**(L/S).

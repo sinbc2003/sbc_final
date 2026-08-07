@@ -67,6 +67,27 @@ def _normalize_edges(edges: list[dict]) -> list[dict]:
     return result
 
 
+# 출력 텍스트 전송 한도. SSE로 한 번 보내는 값이라 1000자는 지나치게 짧았다 —
+# 1000자 넘는 공문 초안을 복사하면 문장 중간에서 잘린 텍스트를 받으면서도
+# 어디에도 잘렸다는 표시가 없었다. 넉넉히 올리고, 그래도 넘으면 알린다.
+OUTPUT_TEXT_LIMIT = 20000
+
+
+def _pack_outputs(result) -> tuple[dict, bool]:
+    """노드 출력을 전송용으로 직렬화. (packed, 절단 발생 여부)"""
+    truncated = False
+    packed: dict[str, dict[str, str]] = {}
+    for nid, outputs in result.outputs.items():
+        packed[nid] = {}
+        for port, val in outputs.items():
+            s = str(val)
+            if len(s) > OUTPUT_TEXT_LIMIT:
+                s = s[:OUTPUT_TEXT_LIMIT]
+                truncated = True
+            packed[nid][port] = s
+    return packed, truncated
+
+
 def _collect_output_files(result) -> list[dict]:
     """실행 결과 중 실제 파일 경로인 출력만 추려 메타 반환 (양 경로 공용)."""
     files = []
@@ -139,12 +160,13 @@ async def run_workflow(req: RunRequest):
                 except Exception:
                     pass
 
+        packed, truncated = _pack_outputs(result)
         return {
             "success": result.success, "errors": result.errors,
             "elapsed_seconds": result.elapsed_seconds, "node_timings": result.node_timings,
             "history_id": record.id, "output_files": output_files, "run_id": run_id,
             "cancelled": result.cancelled,
-            "outputs": {nid: {port: str(val)[:1000] for port, val in outputs.items()} for nid, outputs in result.outputs.items()},
+            "outputs": packed, "outputs_truncated": truncated,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -203,11 +225,12 @@ async def run_workflow_stream(req: RunRequest):
                             import subprocess as _sp; _sp.Popen(["open", f["path"]])
                     except Exception:
                         pass
+            packed, truncated = _pack_outputs(result)
             q.put({"event": "done", "success": result.success, "errors": result.errors,
                    "elapsed_seconds": result.elapsed_seconds, "node_timings": result.node_timings,
                    "history_id": record.id, "output_files": output_files,
                    "run_id": run_id, "cancelled": result.cancelled,
-                   "outputs": {nid: {port: str(val)[:1000] for port, val in outputs.items()} for nid, outputs in result.outputs.items()}})
+                   "outputs": packed, "outputs_truncated": truncated})
         except Exception as e:
             q.put({"event": "error", "message": str(e)})
         finally:

@@ -119,6 +119,7 @@ export interface AppState {
   // 실행 로그/결과
   executionLogs: { nodeId: string; nodeName: string; message: string; timestamp: number }[];
   executionOutputs: Record<string, Record<string, string>>;
+  executionTruncated: boolean; // 출력 텍스트가 전송 한도에서 잘렸는가
   executionPanelOpen: boolean;
   toggleExecutionPanel: () => void;
 
@@ -363,7 +364,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     const { toWorkflowJSON, setExecutionStatus, setNodeStatus, nodes } = get();
     setExecutionStatus("running");
-    set({ executionLogs: [], executionOutputs: {}, executionPanelOpen: true, currentRunId: null });
+    set({ executionLogs: [], executionOutputs: {}, executionTruncated: false,
+          executionPanelOpen: true, currentRunId: null });
 
     // 모든 노드를 idle로 리셋
     for (const n of nodes) {
@@ -429,7 +431,8 @@ export const useStore = create<AppState>((set, get) => ({
             }));
           }
           if (evt.event === "done") {
-            set({ executionOutputs: evt.outputs || {}, currentRunId: null });
+            set({ executionOutputs: evt.outputs || {}, currentRunId: null,
+                  executionTruncated: !!evt.outputs_truncated });
             setExecutionStatus(evt.cancelled ? "cancelled" : evt.success ? "done" : "error");
             // 완료 시 아직 'running'인 노드는 실패로 마감 — 실패 노드가
             // 영원히 스피너로 남는 문제 해소(done엔 실패 노드 개별 신호가 없음).
@@ -511,6 +514,7 @@ export const useStore = create<AppState>((set, get) => ({
   /* ── 실행 로그/결과 ────────────────── */
   executionLogs: [],
   executionOutputs: {},
+  executionTruncated: false,
   executionPanelOpen: false,
   toggleExecutionPanel: () => set((s) => ({ executionPanelOpen: !s.executionPanelOpen })),
 
