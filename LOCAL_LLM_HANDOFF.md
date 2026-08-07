@@ -925,6 +925,34 @@ benchmark에 `--gguf`(모델 지목)+결과에 {gguf,quant,size,elapsed} 스탬�
 
 ---
 
+## 27. 작업 기록 — 2026-08-07 (§26 H/M 트랙 — 개선 백로그 2순위)
+
+> 지시: "다음작업 이어서 진행" → §26이 남긴 **H/M 6건**을 순서대로 구현. 이 섹션이 진행 원장이다.
+
+**H/M (6건)** — [✅]완료 / [ ]대기
+- [✅] **실행 중 취소 수단** (`runner.py`·`routes/execution.py`·Toolbar·ExecutionPanel·TaskRunner)
+- [✅] **워크플로우 생성 GBNF 강제** (`chat/workflow.py`) — §26이 지목한 "신뢰성 최대 병목"
+- [ ] Ctrl+Z 실행취소(zundo)
+- [ ] 연결 실패 무음 → 사유 피드백
+- [ ] 저장 워크플로우 카드 실행 버튼
+- [ ] 고빈도 업무 프리셋 3종(가통문·계획서·명단)
+
+### ① 실행 취소 (협조적 취소)
+`PipelineRunner(cancel_event=threading.Event())` + 노드 경계 체크 → `ExecutionResult.cancelled`.
+`execution.py`에 실행 레지스트리(`_ACTIVE_RUNS`) + **`POST /api/run/{run_id}/cancel`**, run-stream 첫 이벤트로 `run_started{run_id}` 발급. **클라이언트 연결 끊김(탭 닫기)도 취소로 처리** — 기존엔 daemon 스레드가 GPU/COM을 계속 잡고 있었다. 노드도 `context["is_cancelled"]()`로 스스로 빠져나올 수 있다.
+UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`에 `cancelled` 추가(StatusBar "중단됨").
+
+### ② 워크플로우 생성 스키마 강제 (핵심)
+`build_workflow_envelope_schema(registry)` = `{응답, 워크플로우|null}` — live_chat 패턴 복제.
+**노드 type enum(레지스트리 실제 id) + 포트명 enum(출력 15·입력 12종)**. 일반 질문은 `워크플로우=null`로 규칙7 보존. provider=local이면 `generate_chat(json_schema=)` → llama-server GBNF 강제.
+**실측이 드러낸 2차 병목까지 잡음**: 노드 type은 맞히는데 ⓐ포트명을 영어로 지어내고(`text`/`input_text`) ⓑ타입이 어긋난 연결(텍스트 출력→파일 입력) ⓒ단일 노드 자기 연결을 만든다.
+→ 포트명 enum + **`repair_workflow_ports()`**(타입 호환 (출력,입력) 조합이 **유일할 때만** 코드가 보정, 애매하면 손대지 않고 검증이 사유 보고 = 무음 오배선 방지) + `validate_workflow`에 **자기 연결·타입 불일치** 검사와 "가능: '텍스트','파일'" 안내 추가 + 시스템 프롬프트 규칙 13~15.
+부수: 모델 미지정 시 **openai 하드코딩 폴백 → `get_provider_info("auto")`**(M/S), 채팅 history 최근 12개 제한(L/S).
+
+**검증**: 오프라인 74 PASS/0 FAIL(신규 26검사: 취소 5·envelope 13·포트보정 8). **로컬 gemma E2B HTTP E2E 3/3** — PDF요약→hwpx, 엑셀→md, 워드번역→pdf 전부 노드·포트·타입 정확, 일반 질문은 워크플로우 없이 텍스트 답변. tsc 클린.
+
+---
+
 ## 17. 작업 기록 — 2026-07-10 (form_assist HWPX 그리드 경로 + json_schema 강제 ✅ = §16 1순위 완료)
 
 > §16 「다음 세션 착수 계획」의 1순위(`form_assist`를 hwpx_grid 라벨그리드 + json_schema 셀ID enum으로 개선)를 제품 코드에 구현. Level A/B·벤치 495/495에서 검증됐던 "gemma가 라벨 그리드 읽고 셀ID enum으로 자율 배치, 채움은 COM-free 그리드" 방식을 form_assist 실경로로 이관.

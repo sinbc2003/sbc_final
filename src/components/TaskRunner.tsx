@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Upload, Play, Loader2, CheckCircle2, AlertCircle,
-  FileText, Copy, Check, FolderOpen, X, File,
+  FileText, Copy, Check, FolderOpen, X, File, Square, Ban,
 } from "lucide-react";
 
 /* ── 타입 ── */
@@ -25,7 +25,7 @@ interface UserInput {
   placeholder?: string;
 }
 
-type RunStatus = "idle" | "running" | "done" | "error";
+type RunStatus = "idle" | "running" | "done" | "error" | "cancelled";
 
 interface LogEntry {
   nodeName: string;
@@ -118,6 +118,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
   const [outputs, setOutputs] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   /* 프리셋 로드 */
@@ -177,6 +178,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
     setLogs([]);
     setOutputs({});
     setError(null);
+    setRunId(null);
 
     // 프리셋에 사용자 입력 주입
     const wf = JSON.parse(JSON.stringify(preset));
@@ -219,6 +221,9 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           let evt: any;
           try { evt = JSON.parse(match[1]); } catch { continue; }
 
+          if (evt.event === "run_started") {
+            setRunId(evt.run_id || null);
+          }
           if (evt.event === "node_log") {
             setLogs((prev) => [...prev, {
               nodeName: evt.node_name || evt.node_id,
@@ -228,15 +233,19 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           }
           if (evt.event === "done") {
             setOutputs(evt.outputs || {});
-            setStatus(evt.success ? "done" : "error");
+            setRunId(null);
+            setStatus(evt.cancelled ? "cancelled" : evt.success ? "done" : "error");
             // 엔진의 구체적 한국어 오류를 그대로 노출(범용 문구로 뭉개지 않음).
-            if (!evt.success) {
+            if (evt.cancelled) {
+              setError("실행을 중단했습니다. 입력을 고치고 다시 실행하세요.");
+            } else if (!evt.success) {
               const errs = (evt.errors || []) as string[];
               setError(errs.length ? errs.join("\n") : "일부 노드에서 오류가 발생했습니다.");
             }
           }
           if (evt.event === "error") {
             setStatus("error");
+            setRunId(null);
             setError(evt.message || "실행 중 오류 발생");
           }
         }
@@ -246,6 +255,20 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
       setError("서버 연결 실패 — 엔진이 실행 중인지 확인하세요.");
     }
   }, [preset, canRun, userInputs]);
+
+  /* 실행 중단 — 잘못된 파일로 눌렀을 때 몇 분씩 기다리지 않게 한다.
+     엔진은 진행 중인 단계가 끝나면 다음 단계로 넘어가지 않는다. */
+  const cancelTask = useCallback(async () => {
+    if (!runId) return;
+    setLogs((prev) => [...prev, {
+      nodeName: "시스템",
+      message: "중단 요청 — 진행 중인 단계가 끝나면 멈춥니다.",
+      timestamp: Date.now(),
+    }]);
+    try {
+      await fetch(`/api/run/${runId}/cancel`, { method: "POST" });
+    } catch { /* 이미 끝난 실행 */ }
+  }, [runId]);
 
   /* 파일 열기 */
   const openFile = useCallback((path: string) => {
@@ -386,7 +409,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
         </div>
 
         {/* ── 실행 버튼 ── */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center items-center gap-3 mb-8">
           <button
             onClick={runTask}
             disabled={!canRun}
@@ -409,10 +432,25 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
               <><CheckCircle2 size={16} /> 다시 실행</>
             ) : status === "error" ? (
               <><AlertCircle size={16} /> 재시도</>
+            ) : status === "cancelled" ? (
+              <><Play size={16} /> 다시 실행</>
             ) : (
               <><Play size={16} /> 실행</>
             )}
           </button>
+
+          {status === "running" && (
+            <button
+              onClick={cancelTask}
+              disabled={!runId}
+              title={runId ? "실행 중단 (진행 중인 단계가 끝나면 멈춤)" : "실행 시작 중..."}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-[14px] font-semibold
+                bg-red-50 text-red-600 hover:bg-red-100 active:scale-[0.98] transition-all
+                disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Square size={13} fill="currentColor" /> 중단
+            </button>
+          )}
         </div>
 
         {/* ── 로그 ── */}
@@ -435,12 +473,19 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
           </div>
         )}
 
-        {/* ── 에러 ── */}
+        {/* ── 에러 / 중단 안내 ── */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-2">
-            <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-            <span className="text-[13px] text-red-700">{error}</span>
-          </div>
+          status === "cancelled" ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-2">
+              <Ban size={16} className="text-gray-400 flex-shrink-0 mt-0.5" />
+              <span className="text-[13px] text-gray-600">{error}</span>
+            </div>
+          ) : (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-2">
+              <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <span className="text-[13px] text-red-700">{error}</span>
+            </div>
+          )
         )}
 
         {/* ── 결과: 파일 ── */}

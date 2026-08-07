@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -164,6 +165,9 @@ def _validate_connections(
     return warnings
 
 
+CANCEL_MESSAGE = "사용자가 실행을 중단했습니다"
+
+
 @dataclass
 class ExecutionResult:
     """파이프라인 실행 결과."""
@@ -173,6 +177,7 @@ class ExecutionResult:
     errors: list[str]
     elapsed_seconds: float
     node_timings: dict[str, float]  # node_id → 실행 시간(초)
+    cancelled: bool = False  # 사용자 중단으로 끝났는가
 
 
 class PipelineRunner:
@@ -185,12 +190,24 @@ class PipelineRunner:
         config: dict | None = None,
         on_progress: Callable[[str, float], None] | None = None,
         on_log: Callable[[str, str], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ):
         self._registry = registry
         self._llm = llm_manager
         self._config = config or {}
         self._on_progress = on_progress  # (node_id, 0.0~1.0)
         self._on_log = on_log  # (node_id, message)
+        # 협조적 취소: 노드 경계에서 확인한다. 노드 내부도 context["is_cancelled"]()
+        # 로 확인할 수 있게 전달 — 긴 루프를 가진 노드가 스스로 빠져나오도록.
+        self._cancel = cancel_event or threading.Event()
+
+    def cancel(self) -> None:
+        """실행 중단 요청 (다음 노드 경계에서 멈춘다)."""
+        self._cancel.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel.is_set()
 
     def run(
         self,
@@ -236,7 +253,16 @@ class PipelineRunner:
             incoming_edges[edge.to_node].append(edge)
 
         # 순서대로 실행
+        cancelled = False
         for node_id in execution_order:
+            # 협조적 취소: 노드 경계 확인. 로컬 LLM 노드가 수 분 걸려도
+            # 다음 노드로 넘어가기 전에 반드시 멈춘다.
+            if self._cancel.is_set():
+                cancelled = True
+                errors.append(CANCEL_MESSAGE)
+                self._log("SYSTEM", f"[중단] {CANCEL_MESSAGE}")
+                break
+
             wf_node = wf_node_map[node_id]
             node_def = self._registry.get(wf_node.type)
 
@@ -301,6 +327,7 @@ class PipelineRunner:
                 "log": lambda msg, _nid=node_id: self._log(_nid, msg),
                 "llm": self._llm,
                 "config": self._config,
+                "is_cancelled": self._cancel.is_set,
             }
 
             # 실행
@@ -348,6 +375,7 @@ class PipelineRunner:
             errors=errors,
             elapsed_seconds=elapsed,
             node_timings=node_timings,
+            cancelled=cancelled,
         )
 
     def _progress(self, node_id: str, value: float):

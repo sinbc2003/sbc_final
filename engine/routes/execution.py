@@ -21,6 +21,25 @@ from engine.storage import ExecutionRecord
 router = APIRouter()
 
 
+# ── 실행 레지스트리 (취소용) ───────────────────────────────
+# run_id → threading.Event. 실행 시작 시 등록, 종료 시 반드시 해제.
+_ACTIVE_RUNS: dict[str, threading.Event] = {}
+_RUNS_LOCK = threading.Lock()
+
+
+def _register_run() -> tuple[str, threading.Event]:
+    run_id = f"exec_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    ev = threading.Event()
+    with _RUNS_LOCK:
+        _ACTIVE_RUNS[run_id] = ev
+    return run_id, ev
+
+
+def _unregister_run(run_id: str) -> None:
+    with _RUNS_LOCK:
+        _ACTIVE_RUNS.pop(run_id, None)
+
+
 class RunRequest(BaseModel):
     id: str = ""
     name: str = ""
@@ -63,9 +82,28 @@ def _collect_output_files(result) -> list[dict]:
     return files
 
 
+@router.post("/api/run/{run_id}/cancel")
+async def cancel_run(run_id: str):
+    """실행 중단 요청 — 러너가 다음 노드 경계에서 멈춘다(협조적 취소)."""
+    with _RUNS_LOCK:
+        ev = _ACTIVE_RUNS.get(run_id)
+    if ev is None:
+        raise HTTPException(status_code=404, detail="이미 끝났거나 없는 실행입니다")
+    ev.set()
+    return {"ok": True, "run_id": run_id}
+
+
+@router.get("/api/runs")
+async def list_runs():
+    """진행 중인 실행 목록 (디버그·복구용)."""
+    with _RUNS_LOCK:
+        return {"running": list(_ACTIVE_RUNS.keys())}
+
+
 @router.post("/api/run")
 async def run_workflow(req: RunRequest):
     started = datetime.now().isoformat(timespec="seconds")
+    run_id, cancel_ev = _register_run()
     try:
         wf_data = {
             "id": req.id, "name": req.name, "version": req.version,
@@ -74,7 +112,8 @@ async def run_workflow(req: RunRequest):
         }
         workflow = Workflow.from_json(wf_data)
         run_config = {"output_dir": deps.settings_mgr.get("general.output_dir", "")}
-        runner = PipelineRunner(registry=deps.registry, llm_manager=deps.llm_manager, config=run_config)
+        runner = PipelineRunner(registry=deps.registry, llm_manager=deps.llm_manager,
+                                config=run_config, cancel_event=cancel_ev)
         # 동기 runner.run을 스레드로 — 이벤트 루프 블로킹 방지(실행 중 서버 정지 해소).
         result = await asyncio.to_thread(runner.run, workflow, req.initial_inputs or None)
 
@@ -103,17 +142,23 @@ async def run_workflow(req: RunRequest):
         return {
             "success": result.success, "errors": result.errors,
             "elapsed_seconds": result.elapsed_seconds, "node_timings": result.node_timings,
-            "history_id": record.id, "output_files": output_files,
+            "history_id": record.id, "output_files": output_files, "run_id": run_id,
+            "cancelled": result.cancelled,
             "outputs": {nid: {port: str(val)[:1000] for port, val in outputs.items()} for nid, outputs in result.outputs.items()},
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _unregister_run(run_id)
 
 
 @router.post("/api/run-stream")
 async def run_workflow_stream(req: RunRequest):
     started = datetime.now().isoformat(timespec="seconds")
     q: thread_queue.Queue = thread_queue.Queue()
+    run_id, cancel_ev = _register_run()
+    # 첫 이벤트로 run_id를 내려보내 클라이언트가 중단 요청을 걸 수 있게 한다.
+    q.put({"event": "run_started", "run_id": run_id})
 
     node_name_map = {}
     for n in req.nodes:
@@ -136,7 +181,7 @@ async def run_workflow_stream(req: RunRequest):
             runner = PipelineRunner(
                 registry=deps.registry, llm_manager=deps.llm_manager,
                 config={"output_dir": deps.settings_mgr.get("general.output_dir", "")},
-                on_progress=on_progress, on_log=on_log,
+                on_progress=on_progress, on_log=on_log, cancel_event=cancel_ev,
             )
             result = runner.run(workflow, req.initial_inputs or None)
             record = ExecutionRecord(
@@ -161,20 +206,31 @@ async def run_workflow_stream(req: RunRequest):
             q.put({"event": "done", "success": result.success, "errors": result.errors,
                    "elapsed_seconds": result.elapsed_seconds, "node_timings": result.node_timings,
                    "history_id": record.id, "output_files": output_files,
+                   "run_id": run_id, "cancelled": result.cancelled,
                    "outputs": {nid: {port: str(val)[:1000] for port, val in outputs.items()} for nid, outputs in result.outputs.items()}})
         except Exception as e:
             q.put({"event": "error", "message": str(e)})
+        finally:
+            _unregister_run(run_id)
 
     threading.Thread(target=run_in_thread, daemon=True).start()
 
     async def event_stream():
-        while True:
-            try:
-                item = q.get(timeout=0.1)
-                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
-                if item["event"] in ("done", "error"):
-                    break
-            except thread_queue.Empty:
-                await asyncio.sleep(0.05)
+        finished = False
+        try:
+            while True:
+                try:
+                    item = q.get(timeout=0.1)
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                    if item["event"] in ("done", "error"):
+                        finished = True
+                        break
+                except thread_queue.Empty:
+                    await asyncio.sleep(0.05)
+        finally:
+            # 클라이언트가 연결을 끊으면(탭 닫기·새로고침) 러너도 세운다 —
+            # 기존엔 daemon 스레드가 계속 돌며 GPU/한글 COM을 붙잡고 있었다.
+            if not finished:
+                cancel_ev.set()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

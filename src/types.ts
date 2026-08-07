@@ -79,7 +79,7 @@ export interface WorkflowJSON {
 export type AppMode = "home" | "design" | "chat" | "manager";
 
 /** 실행 상태 */
-export type ExecutionStatus = "idle" | "running" | "done" | "error";
+export type ExecutionStatus = "idle" | "running" | "done" | "error" | "cancelled";
 
 /** 채팅 메시지 */
 export interface ChatMessage {

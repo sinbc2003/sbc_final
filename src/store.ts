@@ -81,6 +81,8 @@ export interface AppState {
     error?: string
   ) => void;
   runWorkflow: () => Promise<void>;
+  currentRunId: string | null;
+  cancelWorkflow: () => Promise<void>;
 
   // 실행 로그/결과
   executionLogs: { nodeId: string; nodeName: string; message: string; timestamp: number }[];
@@ -242,7 +244,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const { toWorkflowJSON, setExecutionStatus, setNodeStatus, nodes } = get();
     setExecutionStatus("running");
-    set({ executionLogs: [], executionOutputs: {}, executionPanelOpen: true });
+    set({ executionLogs: [], executionOutputs: {}, executionPanelOpen: true, currentRunId: null });
 
     // 모든 노드를 idle로 리셋
     for (const n of nodes) {
@@ -285,6 +287,10 @@ export const useStore = create<AppState>((set, get) => ({
             continue;
           }
 
+          if (evt.event === "run_started") {
+            // 엔진이 발급한 실행 ID — '중단' 버튼이 이 ID로 취소를 건다.
+            set({ currentRunId: evt.run_id || null });
+          }
           if (evt.event === "node_progress") {
             if (evt.progress === 0) setNodeStatus(evt.node_id, "running", 0);
             else if (evt.progress >= 1) setNodeStatus(evt.node_id, "done", 1);
@@ -304,8 +310,8 @@ export const useStore = create<AppState>((set, get) => ({
             }));
           }
           if (evt.event === "done") {
-            set({ executionOutputs: evt.outputs || {} });
-            setExecutionStatus(evt.success ? "done" : "error");
+            set({ executionOutputs: evt.outputs || {}, currentRunId: null });
+            setExecutionStatus(evt.cancelled ? "cancelled" : evt.success ? "done" : "error");
             // 완료 시 아직 'running'인 노드는 실패로 마감 — 실패 노드가
             // 영원히 스피너로 남는 문제 해소(done엔 실패 노드 개별 신호가 없음).
             for (const n of get().nodes) {
@@ -330,6 +336,7 @@ export const useStore = create<AppState>((set, get) => ({
           if (evt.event === "error") {
             setExecutionStatus("error");
             set((s) => ({
+              currentRunId: null,
               executionLogs: [
                 ...s.executionLogs,
                 {
@@ -346,6 +353,7 @@ export const useStore = create<AppState>((set, get) => ({
     } catch {
       setExecutionStatus("error");
       set((s) => ({
+        currentRunId: null,
         executionLogs: [
           ...s.executionLogs,
           {
@@ -357,6 +365,28 @@ export const useStore = create<AppState>((set, get) => ({
         ],
       }));
     }
+  },
+
+  /* 실행 중단 — 엔진은 다음 노드 경계에서 멈춘다(협조적 취소).
+     현재 노드가 끝나야 반응하므로 '중단 요청' 로그를 즉시 남긴다. */
+  currentRunId: null,
+  cancelWorkflow: async () => {
+    const runId = get().currentRunId;
+    if (!runId || get().executionStatus !== "running") return;
+    set((s) => ({
+      executionLogs: [
+        ...s.executionLogs,
+        {
+          nodeId: "SYSTEM",
+          nodeName: "시스템",
+          message: "중단 요청 — 진행 중인 단계가 끝나면 멈춥니다.",
+          timestamp: Date.now(),
+        },
+      ],
+    }));
+    try {
+      await fetch(`/api/run/${runId}/cancel`, { method: "POST" });
+    } catch { /* 이미 끝난 실행 */ }
   },
 
   /* ── 실행 로그/결과 ────────────────── */

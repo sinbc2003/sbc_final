@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import {
   ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle, Loader2,
-  Copy, Check, FolderOpen, FileText, ExternalLink, ChevronRight,
+  Copy, Check, FolderOpen, FileText, ExternalLink, ChevronRight, Ban, Square,
 } from "lucide-react";
 import { useStore } from "../store";
 import { getCategoryColor } from "../constants";
@@ -153,6 +153,7 @@ export function ExecutionPanel() {
   const outputs = useStore((s) => s.executionOutputs);
   const panelOpen = useStore((s) => s.executionPanelOpen);
   const togglePanel = useStore((s) => s.toggleExecutionPanel);
+  const currentRunId = useStore((s) => s.currentRunId);
   const catMap = useNodeCategoryMap();
   const nameMap = useNodeNameMap();
   const [tab, setTab] = useState<PanelTab>("logs");
@@ -161,7 +162,8 @@ export function ExecutionPanel() {
   const isRunning = executionStatus === "running";
   const isDone = executionStatus === "done";
   const isError = executionStatus === "error";
-  const hasRun = logs.length > 0 || isRunning || isDone || isError;
+  const isCancelled = executionStatus === "cancelled";
+  const hasRun = logs.length > 0 || isRunning || isDone || isError || isCancelled;
 
   // 실행 중 자동 스크롤
   useEffect(() => {
@@ -170,7 +172,7 @@ export function ExecutionPanel() {
     }
   }, [logs.length, isRunning]);
 
-  // 완료 시 출력 탭으로 자동 전환
+  // 완료 시 출력 탭으로 자동 전환 (중단은 로그를 보여주는 게 맞다)
   useEffect(() => {
     if ((isDone || isError) && Object.keys(outputs).length > 0) {
       setTab("outputs");
@@ -204,9 +206,9 @@ export function ExecutionPanel() {
 
   if (!hasRun) return null;
 
-  const statusLabel = isRunning ? "실행 중..." : isDone ? "완료" : isError ? "오류" : "";
-  const StatusIcon = isRunning ? Loader2 : isDone ? CheckCircle2 : isError ? AlertCircle : null;
-  const statusColor = isRunning ? "#e8a028" : isDone ? "#10b981" : isError ? "#ef4444" : "#999";
+  const statusLabel = isRunning ? "실행 중..." : isDone ? "완료" : isError ? "오류" : isCancelled ? "중단됨" : "";
+  const StatusIcon = isRunning ? Loader2 : isDone ? CheckCircle2 : isError ? AlertCircle : isCancelled ? Ban : null;
+  const statusColor = isRunning ? "#e8a028" : isDone ? "#10b981" : isError ? "#ef4444" : isCancelled ? "#9ca3af" : "#999";
 
   return (
     <div className="execution-panel border-t border-gray-200 bg-[#1e1e1e] flex flex-col"
@@ -238,6 +240,19 @@ export function ExecutionPanel() {
 
         <div className="flex items-center gap-3">
           {elapsed !== 0 && <span className="text-[11px] text-gray-400">{elapsed}초</span>}
+          {/* 중단 — 헤더의 X는 패널만 닫는다. 실제 실행을 세우는 건 이 버튼. */}
+          {isRunning && (
+            <button
+              onClick={(e) => { e.stopPropagation(); useStore.getState().cancelWorkflow(); }}
+              disabled={!currentRunId}
+              title="실행 중단 (진행 중인 단계가 끝나면 멈춤)"
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium
+                bg-red-900/30 text-red-300 hover:bg-red-900/50 transition-colors
+                disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Square size={9} fill="currentColor" /> 중단
+            </button>
+          )}
           <div className="flex items-center gap-1" style={{ color: statusColor }}>
             {StatusIcon && <StatusIcon size={13} className={isRunning ? "animate-spin" : ""} />}
             <span className="text-[11px] font-medium">{statusLabel}</span>

@@ -3,7 +3,7 @@ import {
   Play, Save, FolderOpen, FilePlus,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Settings, Loader2, CheckCircle2, AlertCircle, Workflow,
-  ChevronDown, Home,
+  ChevronDown, Home, Square,
 } from "lucide-react";
 import { useStore } from "../store";
 
@@ -12,6 +12,8 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const setMode = useStore((s) => s.setMode);
   const executionStatus = useStore((s) => s.executionStatus);
   const runWorkflow = useStore((s) => s.runWorkflow);
+  const cancelWorkflow = useStore((s) => s.cancelWorkflow);
+  const currentRunId = useStore((s) => s.currentRunId);
   const nodes = useStore((s) => s.nodes);
   const paletteOpen = useStore((s) => s.paletteOpen);
   const propertiesOpen = useStore((s) => s.propertiesOpen);
@@ -184,8 +186,24 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
             {isRunning ? <><Loader2 size={13} className="animate-spin" /> 실행 중...</>
               : executionStatus === "done" ? <><CheckCircle2 size={13} /> 재실행</>
               : executionStatus === "error" ? <><AlertCircle size={13} className="text-red-500" /> 재시도</>
+              : executionStatus === "cancelled" ? <><Play size={13} /> 다시 실행</>
               : <><Play size={13} /> 실행</>}
           </button>
+
+          {/* 중단 — 잘못 실행했을 때 앱 강제종료 말고 여기서 멈춘다.
+              엔진은 진행 중인 노드가 끝나면 다음 노드로 넘어가지 않는다. */}
+          {isRunning && (
+            <button
+              onClick={cancelWorkflow}
+              disabled={!currentRunId}
+              title={currentRunId ? "실행 중단 (진행 중인 단계가 끝나면 멈춤)" : "실행 시작 중..."}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[12px] font-semibold
+                bg-red-50 text-red-600 hover:bg-red-100 active:scale-[0.97] transition-all
+                disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Square size={11} fill="currentColor" /> 중단
+            </button>
+          )}
 
           <div className="w-px h-5 bg-gray-200 mx-1" />
 

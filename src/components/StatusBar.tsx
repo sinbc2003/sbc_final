@@ -53,8 +53,8 @@ export function StatusBar() {
     return () => clearInterval(timer);
   }, [checkEngine]);
 
-  const statusLabel = { idle: "준비", running: "실행 중", done: "완료", error: "오류" }[executionStatus];
-  const statusColor = { idle: "bg-gray-400", running: "bg-amber-400 animate-pulse", done: "bg-emerald-400", error: "bg-red-400" }[executionStatus];
+  const statusLabel = { idle: "준비", running: "실행 중", done: "완료", error: "오류", cancelled: "중단됨" }[executionStatus];
+  const statusColor = { idle: "bg-gray-400", running: "bg-amber-400 animate-pulse", done: "bg-emerald-400", error: "bg-red-400", cancelled: "bg-gray-500" }[executionStatus];
 
   return (
     <div className="h-6 bg-white border-t border-tf-border flex items-center px-3 gap-4 text-[10px] text-gray-500 flex-shrink-0">
