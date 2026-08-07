@@ -24,11 +24,17 @@ class ImportRequest(BaseModel):
     merge: bool = True
 
 
+@router.get("/api/rag/stats")
+async def rag_stats():
+    if not deps.vector_store:
+        return {"enabled": False, "count": 0}
+    return deps.vector_store.get_stats()
+
 @router.post("/api/rag/ingest")
 async def rag_ingest(req: IngestRequest):
     if not deps.vector_store:
         raise HTTPException(503, "RAG 비활성")
-    return deps.vector_store.ingest(req.text, req.source, req.metadata)
+    return deps.vector_store.ingest(req.text, metadata=req.metadata, source=req.source)
 
 @router.post("/api/rag/query")
 async def rag_query(req: QueryRequest):

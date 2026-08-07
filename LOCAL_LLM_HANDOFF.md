@@ -1010,6 +1010,20 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 
 ---
 
+## 28. 작업 기록 — 2026-08-07 (배포 패키징 트랙 착수 — §9 실행)
+
+> §27 종료 시점의 다음 트랙 1순위 = **배포 패키징(엔진 EXE + Tauri + GGUF 동봉, §9)**. 이 섹션이 진행 원장이다.
+
+### 선행 소품: `/api/rag/stats` 404 종결 ✅
+§27 발견 항목. `engine/routes/rag.py`에 `GET /api/rag/stats` 추가(`vector_store.get_stats()` — 이미 존재, 비활성 시 `{enabled:false,count:0}`). StatusBar 폴링이 이제 200을 받는다(count 0이면 UI 미표시 = 기존과 동일 화면).
+**겸사 버그 수정**: `rag_ingest` 라우트가 `ingest(req.text, req.source, req.metadata)` 위치 인자로 호출 — 시그니처는 `(text, metadata, source)`라 **metadata와 source가 뒤바뀌어** 들어가던 결함(RAG 켜면 즉시 TypeError 또는 오염). 키워드 인자로 교정.
+검증: TestClient 200 확인 + 오프라인 **104 PASS/0 FAIL**.
+
+### 패키징 현황 파악 (착수 시점)
+- **도구 준비됨**: Python 3.10.11 + PyInstaller 6.19.0 / Rust 1.94 + cargo / Node 22.
+- **src-tauri = 초기 커밋의 뼈대뿐**: 창 설정·shell plugin(`python -m engine.server` 스코프 — 교사 PC에선 무의미)·updater 엔드포인트 placeholder. **엔진 사이드카 기동/종료/헬스체크 배선 없음**. 실질 패키징 작업은 전부 이번 트랙에서.
+- 5렌즈 정찰(동적 import/경로/외부 바이너리/프론트 결합/의존성 무게) 워크플로우 결과는 아래에 추가 예정.
+
 ## 17. 작업 기록 — 2026-07-10 (form_assist HWPX 그리드 경로 + json_schema 강제 ✅ = §16 1순위 완료)
 
 > §16 「다음 세션 착수 계획」의 1순위(`form_assist`를 hwpx_grid 라벨그리드 + json_schema 셀ID enum으로 개선)를 제품 코드에 구현. Level A/B·벤치 495/495에서 검증됐던 "gemma가 라벨 그리드 읽고 셀ID enum으로 자율 배치, 채움은 COM-free 그리드" 방식을 form_assist 실경로로 이관.
