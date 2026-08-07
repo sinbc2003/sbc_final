@@ -985,6 +985,7 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 ### ⏭️ 다음 세션 (§26 잔여)
 **M/S**: 스트림 출력 1000자 무음 절단(`execution.py`) · TaskRunner node_progress 미사용(단계 진행률) · JSON 파싱 실패 원문 노출 · 우클릭 노드추가 좌표 미변환(`ContextMenu.tsx:129`)
 **M/M**: 실행 이력 재사용/node_timings 형식 · FormAssist 채팅 로직 2곳 중복(`routes/chat.py:61`) · defaultNodes 드리프트(yaml 생성기) · llm_generate LoRA 자유텍스트(어댑터 목록 API)
+**이번에 발견(백로그 밖, 미수정)**: `StatusBar.tsx:34`가 **없는 엔드포인트 `/api/rag/stats`를 10초마다 폴링**(초기 커밋부터 — `engine/routes/rag.py`엔 ingest/query/export/import만 있다). 조용히 404라 RAG 문서 수 표시가 처음부터 죽어 있었다. 라우트 추가(`vector_store` 문서 수) 또는 폴링 제거 중 택1.
 ※ 이번에 함께 해소된 항목: **입력 포트 다중 연결**(M/S) · **모델 미지정 openai 하드코딩 폴백**(M/S) · **from_port 누락 KeyError→HTTP 500**(M/S, `Workflow.from_json`을 관대하게 + 노드 id 없으면 명확한 ValueError) · **채팅 history 무제한 누적**(L/S).
 
 ---
