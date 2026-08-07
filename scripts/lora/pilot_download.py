@@ -32,10 +32,10 @@ HEADERS = {
 }
 
 
-PER_ORG_CAP = 60  # 교육청별 상한 — 파일이 지역별로 뭉쳐 있어 다양성 확보
+PER_ORG_CAP = 60  # 교육청별 상한 기본값 — --per-org-cap으로 조정(v5 스케일업)
 
 
-def iter_candidates():
+def iter_candidates(per_org_cap: int = PER_ORG_CAP):
     """detail jsonl 순회 — 제목 필터 × 최근 생산 × 본문 PDF × 교육청별 상한."""
     org_count: dict = {}
     for name in ("education_office_detail.jsonl",
@@ -64,7 +64,7 @@ def iter_candidates():
                 if date[:4] < "2024":
                     continue
                 key = org.split()[0] if org else "?"
-                if org_count.get(key, 0) >= PER_ORG_CAP:
+                if org_count.get(key, 0) >= per_org_cap:
                     continue
                 body = next((a for a in (d.get("attachments") or [])
                              if a.get("file_type") == "본문"
@@ -147,6 +147,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=1000)
     ap.add_argument("--sleep", type=float, default=2.0)
+    ap.add_argument("--per-org-cap", type=int, default=PER_ORG_CAP)
     args = ap.parse_args()
 
     OUT.mkdir(exist_ok=True)
@@ -156,7 +157,7 @@ def main() -> int:
 
     done = ok = fail = 0
     with MANIFEST.open("a", encoding="utf-8") as mf:
-        for d, df, body in iter_candidates():
+        for d, df, body in iter_candidates(args.per_org_cap):
             if ok >= args.limit:
                 break
             reg = d.get("registration_no") or body["file_id"]
