@@ -43,6 +43,30 @@ function definitionToFlowData(def: NodeDefinition): FlowNodeData {
   };
 }
 
+/* ── 실행취소 히스토리 ────────────────────────────
+   설계·편집 상태(nodes/edges/workflowName)만 추적한다. 실행 상태·로그·
+   패널 열림 등은 되돌릴 대상이 아니다.
+   zundo(temporal 미들웨어) 대신 직접 구현: zustand가 이 프로젝트의 직접
+   의존성이 아니라 @xyflow/react의 전이 의존성이라, 미들웨어 추가는 버전
+   결합 위험이 크다. 필요한 동작(스냅샷·상한·드래그 병합)은 60줄이면 된다. */
+
+interface HistorySnapshot {
+  nodes: Node<FlowNodeData>[];
+  edges: Edge[];
+  workflowName: string;
+}
+
+const HISTORY_LIMIT = 50;
+const PARAM_COALESCE_MS = 800; // 같은 파라미터 연속 입력은 한 단계로 묶는다
+
+// 드래그 시작 직전 스냅샷(모듈 지역 — 되돌릴 상태가 아니라 기록 도구다)
+let _dragSnapshot: HistorySnapshot | null = null;
+let _lastParamEdit: { key: string; at: number } | null = null;
+
+function snapshotOf(s: { nodes: Node<FlowNodeData>[]; edges: Edge[]; workflowName: string }): HistorySnapshot {
+  return { nodes: s.nodes, edges: s.edges, workflowName: s.workflowName };
+}
+
 /* ── store type ──────────────────────────────────── */
 
 export interface AppState {
@@ -61,11 +85,19 @@ export interface AppState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
 
+  // 실행취소 / 다시실행
+  history: HistorySnapshot[];
+  future: HistorySnapshot[];
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+
   // 노드 조작
   addNode: (defId: string, position: { x: number; y: number }) => void;
   addFileNode: (position: { x: number; y: number }, filePath: string, fileName: string) => string | null;
   deleteSelected: () => void;
-  updateNodeParams: (nodeId: string, paramValues: Record<string, any>) => void;
+  /** recordHistory=false: 직전 동작(노드 복제 등)의 일부라 별도 undo 단계로 만들지 않는다 */
+  updateNodeParams: (nodeId: string, paramValues: Record<string, any>, recordHistory?: boolean) => void;
 
   // 선택
   selectedNodeId: string | null;
@@ -118,6 +150,11 @@ export interface AppState {
   updateChatMessage: (id: string, updates: Partial<ChatMessage>) => void;
   clearChat: () => void;
 
+  // 토스트 (연결 실패 사유 등 짧은 피드백)
+  toast: { id: number; message: string; kind: "info" | "warn" | "error" } | null;
+  showToast: (message: string, kind?: "info" | "warn" | "error") => void;
+  dismissToast: () => void;
+
   // 사이드바
   paletteOpen: boolean;
   propertiesOpen: boolean;
@@ -134,18 +171,72 @@ export const useStore = create<AppState>((set, get) => ({
   nodeDefinitions: [],
   setNodeDefinitions: (defs) => set({ nodeDefinitions: defs }),
 
+  /* ── 실행취소 히스토리 ─────────────── */
+  history: [],
+  future: [],
+
+  pushHistory: () =>
+    set((s) => ({
+      history: [...s.history, snapshotOf(s)].slice(-HISTORY_LIMIT),
+      future: [], // 새 편집이 생기면 redo 스택은 버린다
+    })),
+
+  undo: () =>
+    set((s) => {
+      if (s.history.length === 0) return s;
+      const prev = s.history[s.history.length - 1];
+      return {
+        nodes: prev.nodes, edges: prev.edges, workflowName: prev.workflowName,
+        history: s.history.slice(0, -1),
+        future: [...s.future, snapshotOf(s)].slice(-HISTORY_LIMIT),
+        selectedNodeId: prev.nodes.some((n) => n.id === s.selectedNodeId) ? s.selectedNodeId : null,
+        dirty: true,
+      };
+    }),
+
+  redo: () =>
+    set((s) => {
+      if (s.future.length === 0) return s;
+      const next = s.future[s.future.length - 1];
+      return {
+        nodes: next.nodes, edges: next.edges, workflowName: next.workflowName,
+        future: s.future.slice(0, -1),
+        history: [...s.history, snapshotOf(s)].slice(-HISTORY_LIMIT),
+        selectedNodeId: next.nodes.some((n) => n.id === s.selectedNodeId) ? s.selectedNodeId : null,
+        dirty: true,
+      };
+    }),
+
   /* ── React Flow ────────────────────── */
   nodes: [],
   edges: [],
 
-  onNodesChange: (changes) =>
-    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) as Node<FlowNodeData>[], dirty: true })),
+  onNodesChange: (changes) => {
+    // 드래그 중(position, dragging=true)엔 기록하지 않고 **드래그 시작 직전**
+    // 상태를 잡아두었다가 드래그가 끝날 때 한 단계로 커밋한다.
+    // (끝나고 잡으면 이미 이동한 위치라 undo가 무의미해진다.)
+    const hasRemove = changes.some((c) => c.type === "remove");
+    const dragStart = changes.some((c) => c.type === "position" && (c as any).dragging === true);
+    const dragEnd = changes.some((c) => c.type === "position" && (c as any).dragging === false);
 
-  onEdgesChange: (changes) =>
-    set((s) => ({ edges: applyEdgeChanges(changes, s.edges), dirty: true })),
+    if (hasRemove) get().pushHistory();
+    if (dragStart && !_dragSnapshot) _dragSnapshot = snapshotOf(get());
+    if (dragEnd && _dragSnapshot) {
+      const snap = _dragSnapshot;
+      _dragSnapshot = null;
+      set((s) => ({ history: [...s.history, snap].slice(-HISTORY_LIMIT), future: [] }));
+    }
+    set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) as Node<FlowNodeData>[], dirty: true }));
+  },
+
+  onEdgesChange: (changes) => {
+    if (changes.some((c) => c.type === "remove")) get().pushHistory();
+    set((s) => ({ edges: applyEdgeChanges(changes, s.edges), dirty: true }));
+  },
 
   onConnect: (connection) => {
     const { nodes } = get();
+    get().pushHistory();
     let { source, sourceHandle, target, targetHandle } = connection;
 
     // 역방향 감지: source 노드에서 sourceHandle이 input이면 방향 뒤집기
@@ -159,19 +250,31 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
+    // 입력 포트는 하나만 받는다. 예전엔 여러 개가 붙은 뒤 실행 시점에
+    // 마지막 값이 조용히 덮어써졌다 → 기존 연결을 교체하고 이유를 알린다.
+    const replaced = get().edges.some(
+      (e) => e.target === target && e.targetHandle === targetHandle
+    );
     set((s) => ({
       edges: addEdge(
         { source: source!, sourceHandle, target: target!, targetHandle, type: "smoothstep", animated: false },
-        s.edges
+        s.edges.filter((e) => !(e.target === target && e.targetHandle === targetHandle))
       ),
       dirty: true,
     }));
+    if (replaced) {
+      get().showToast(
+        `'${targetHandle}' 입력은 하나만 연결할 수 있어 기존 연결을 교체했습니다.`,
+        "info"
+      );
+    }
   },
 
   /* ── 노드 조작 ─────────────────────── */
   addNode: (defId, position) => {
     const def = get().nodeDefinitions.find((d) => d.id === defId);
     if (!def) return;
+    get().pushHistory();
     const newNode: Node<FlowNodeData> = {
       id: nextId(),
       type: "custom",
@@ -184,6 +287,7 @@ export const useStore = create<AppState>((set, get) => ({
   addFileNode: (position, filePath, fileName) => {
     const def = get().nodeDefinitions.find((d) => d.id === "file_input");
     if (!def) return null;
+    get().pushHistory();
     const id = nextId();
     const data = definitionToFlowData(def);
     data.paramValues.path = filePath;
@@ -193,25 +297,34 @@ export const useStore = create<AppState>((set, get) => ({
     return id;
   },
 
-  deleteSelected: () =>
-    set((s) => {
-      const selectedIds = new Set(
-        s.nodes.filter((n) => n.selected).map((n) => n.id)
-      );
-      if (selectedIds.size === 0) return s;
-      return {
-        nodes: s.nodes.filter((n) => !selectedIds.has(n.id)),
-        edges: s.edges.filter(
-          (e) => !selectedIds.has(e.source) && !selectedIds.has(e.target)
-        ),
-        selectedNodeId:
-          s.selectedNodeId && selectedIds.has(s.selectedNodeId)
-            ? null
-            : s.selectedNodeId,
-      };
-    }),
+  deleteSelected: () => {
+    const selectedIds = new Set(get().nodes.filter((n) => n.selected).map((n) => n.id));
+    if (selectedIds.size === 0) return;
+    // Backspace 오삭제가 비가역이던 지점 — 지우기 전에 스냅샷.
+    get().pushHistory();
+    set((s) => ({
+      nodes: s.nodes.filter((n) => !selectedIds.has(n.id)),
+      edges: s.edges.filter(
+        (e) => !selectedIds.has(e.source) && !selectedIds.has(e.target)
+      ),
+      selectedNodeId:
+        s.selectedNodeId && selectedIds.has(s.selectedNodeId)
+          ? null
+          : s.selectedNodeId,
+      dirty: true,
+    }));
+  },
 
-  updateNodeParams: (nodeId, paramValues) =>
+  updateNodeParams: (nodeId, paramValues, recordHistory = true) => {
+    // 텍스트 파라미터는 키 입력마다 호출된다 → 같은 필드 연속 입력은
+    // 한 단계로 묶어 히스토리가 글자 수만큼 쌓이는 것을 막는다.
+    const key = `${nodeId}:${Object.keys(paramValues).join(",")}`;
+    const now = Date.now();
+    if (recordHistory && (!_lastParamEdit || _lastParamEdit.key !== key ||
+        now - _lastParamEdit.at > PARAM_COALESCE_MS)) {
+      get().pushHistory();
+    }
+    _lastParamEdit = { key, at: now };
     set((s) => ({
       nodes: s.nodes.map((n) =>
         n.id === nodeId
@@ -219,7 +332,8 @@ export const useStore = create<AppState>((set, get) => ({
           : n
       ),
       dirty: true,
-    })),
+    }));
+  },
 
   /* ── 선택 ───────────────────────────── */
   selectedNodeId: null,
@@ -463,12 +577,16 @@ export const useStore = create<AppState>((set, get) => ({
     }));
 
     const meta = (wf as any)._meta;
+    // 다른 워크플로우를 불러오면 히스토리는 리셋 — 되돌리기가 이전 워크플로우로
+    // 넘어가면 두 워크플로우가 섞인다.
+    _dragSnapshot = null;
+    _lastParamEdit = null;
     set({
       nodes: newNodes, edges: newEdges, selectedNodeId: null,
       workflowId: meta?.id ?? wf.id ?? null,
       workflowName: meta?.name ?? wf.name ?? "불러온 워크플로우",
       workflowDescription: meta?.description ?? wf.description ?? "",
-      dirty: false,
+      dirty: false, history: [], future: [],
     });
   },
 
@@ -553,12 +671,15 @@ export const useStore = create<AppState>((set, get) => ({
     return false;
   },
 
-  newWorkflow: () =>
+  newWorkflow: () => {
+    _dragSnapshot = null;
+    _lastParamEdit = null;
     set({
       nodes: [], edges: [], selectedNodeId: null,
       workflowId: null, workflowName: "새 워크플로우", workflowDescription: "",
-      dirty: false, executionStatus: "idle",
-    }),
+      dirty: false, executionStatus: "idle", history: [], future: [],
+    });
+  },
 
   /* ── 워크플로우 매니저 ─────────────── */
   managerOpen: false,
@@ -580,6 +701,12 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     })),
   clearChat: () => set({ chatMessages: [] }),
+
+  /* ── 토스트 ─────────────────────────── */
+  toast: null,
+  // id를 새로 발급해 같은 문구를 연달아 띄워도 표시가 갱신되게 한다
+  showToast: (message, kind = "info") => set({ toast: { id: Date.now(), message, kind } }),
+  dismissToast: () => set({ toast: null }),
 
   /* ── 사이드바 ──────────────────────── */
   paletteOpen: true,

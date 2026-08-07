@@ -72,7 +72,8 @@ export function ContextMenu({ menu, onClose }: Props) {
     const newNodes = useStore.getState().nodes;
     const newNode = newNodes[newNodes.length - 1];
     if (newNode) {
-      updateNodeParams(newNode.id, { ...(node.data as any).paramValues });
+      // 복제는 한 동작 — 파라미터 복사가 별도 undo 단계가 되지 않게 한다
+      updateNodeParams(newNode.id, { ...(node.data as any).paramValues }, false);
     }
   }, [menu.nodeId, nodes, addNode, updateNodeParams]);
 

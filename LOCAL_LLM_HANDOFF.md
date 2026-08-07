@@ -932,8 +932,8 @@ benchmark에 `--gguf`(모델 지목)+결과에 {gguf,quant,size,elapsed} 스탬�
 **H/M (6건)** — [✅]완료 / [ ]대기
 - [✅] **실행 중 취소 수단** (`runner.py`·`routes/execution.py`·Toolbar·ExecutionPanel·TaskRunner)
 - [✅] **워크플로우 생성 GBNF 강제** (`chat/workflow.py`) — §26이 지목한 "신뢰성 최대 병목"
-- [ ] Ctrl+Z 실행취소(zundo)
-- [ ] 연결 실패 무음 → 사유 피드백
+- [✅] **Ctrl+Z 실행취소/다시실행** (`store.ts`·FlowCanvas·Toolbar)
+- [✅] **연결 실패 사유 피드백** (`connectionCheck.ts`·`Toast.tsx`)
 - [ ] 저장 워크플로우 카드 실행 버튼
 - [ ] 고빈도 업무 프리셋 3종(가통문·계획서·명단)
 
@@ -950,6 +950,18 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 부수: 모델 미지정 시 **openai 하드코딩 폴백 → `get_provider_info("auto")`**(M/S), 채팅 history 최근 12개 제한(L/S).
 
 **검증**: 오프라인 74 PASS/0 FAIL(신규 26검사: 취소 5·envelope 13·포트보정 8). **로컬 gemma E2B HTTP E2E 3/3** — PDF요약→hwpx, 엑셀→md, 워드번역→pdf 전부 노드·포트·타입 정확, 일반 질문은 워크플로우 없이 텍스트 답변. tsc 클린.
+
+### ③ 실행취소(Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y)
+`store.ts`에 `history`/`future` 스택(상한 50) + `pushHistory/undo/redo`. **zundo를 쓰지 않았다** — zustand가 이 프로젝트의 직접 의존성이 아니라 `@xyflow/react`의 전이 의존성(5.0.12)이라 미들웨어 추가는 버전 결합 위험이 크고, 필요한 동작은 60줄이면 된다.
+기록 지점: 노드 추가/파일노드/삭제/연결/파라미터변경/엣지·노드 remove. **드래그는 시작 직전 스냅샷을 잡아 드래그 끝에 1단계로 커밋**(끝나고 잡으면 이미 이동한 위치라 undo가 무의미). **파라미터 연속 입력은 800ms 안이면 한 단계로 병합**(글자 수만큼 쌓이는 것 방지). 노드 복제는 `updateNodeParams(..., recordHistory=false)`로 1단계. 워크플로우 로드/새로만들기는 히스토리 리셋(두 워크플로우가 섞이는 것 방지).
+단축키는 window 레벨 + 입력 필드 안에서는 브라우저 기본 실행취소에 양보.
+
+### ④ 연결 실패 사유 + 입력 포트 단일 연결
+`src/connectionCheck.ts`로 **판정과 사유를 한 함수에**(`checkConnection` → `{ok}` | `{ok:false, reason}`), `isValidConnection`은 그 불리언만 쓴다. `onConnectEnd`에서 **핸들 위에서 놓았는데 안 붙은 경우만** 토스트(빈 캔버스에 놓기 = 취소라 알리지 않음). 신규 `Toast.tsx`(store `toast`/`showToast`, 4.5초 자동 소멸).
+사유 예: "파일(file) 출력은 텍스트(text) 입력에 연결할 수 없습니다 — 사이에 변환 노드를 넣으세요", "'파일' 입력은 .pdf 형식만 받습니다(보낸 형식: .xlsx, .csv)".
+겸사: **입력 포트 다중 연결(M/S)** — 예전엔 여러 개가 붙고 실행 시 마지막 값이 조용히 덮어썼다 → 기존 연결을 교체하고 이유를 안내.
+
+**검증(브라우저 실측, vite :1420 + 엔진 :8407)**: 노드 추가 2회 → Ctrl+Z 2회 → Ctrl+Shift+Z 2회 = 2→1→0→1→2 정확. `checkConnection` 실모듈 동적 import로 6케이스(타입불일치·정상·자기자신·역방향드래그·출력끼리·확장자불일치/미선언/any) 전부 기대대로. 입력 포트 재연결 = 엣지 1개 유지 + 소스 교체 + 안내 토스트, undo로 이전 연결 복원. tsc 클린.
 
 ---
 

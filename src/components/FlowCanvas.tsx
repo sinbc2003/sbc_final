@@ -20,6 +20,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { useStore } from "../store";
 import type { FlowNodeData } from "../types";
 import { getPortColor } from "../constants";
+import { checkConnection } from "../connectionCheck";
 
 const nodeTypes = { custom: CustomNode };
 const edgeTypes = { smoothstep: CustomEdge };
@@ -27,6 +28,7 @@ const edgeTypes = { smoothstep: CustomEdge };
 const defaultEdgeOptions = {
   type: "smoothstep" as const,
 };
+
 
 export function FlowCanvas() {
   const reactFlowRef = useRef<HTMLDivElement>(null);
@@ -42,6 +44,7 @@ export function FlowCanvas() {
   const addFileNode = useStore((s) => s.addFileNode);
   const selectNode = useStore((s) => s.selectNode);
   const deleteSelected = useStore((s) => s.deleteSelected);
+  const showToast = useStore((s) => s.showToast);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
@@ -59,44 +62,26 @@ export function FlowCanvas() {
 
   /* ── 연결 유효성 검사 (양방향 대응) ─────────── */
   const isValidConnection: IsValidConnection = useCallback(
-    (connection: Edge | Connection) => {
-      const { source, target, sourceHandle, targetHandle } = connection;
-      if (!source || !target || source === target) return false;
-
-      const sourceNode = nodes.find((n) => n.id === source);
-      const targetNode = nodes.find((n) => n.id === target);
-      if (!sourceNode || !targetNode) return false;
-
-      const srcData = sourceNode.data as FlowNodeData;
-      const tgtData = targetNode.data as FlowNodeData;
-
-      // 정방향: source의 output → target의 input
-      let outPort = srcData.outputs.find((p) => p.name === sourceHandle);
-      let inPort = tgtData.inputs.find((p) => p.name === targetHandle);
-
-      // 역방향: source가 실제로 input이고 target이 output (드래그 방향 반대)
-      if (!outPort || !inPort) {
-        outPort = tgtData.outputs.find((p) => p.name === targetHandle);
-        inPort = srcData.inputs.find((p) => p.name === sourceHandle);
-      }
-
-      if (!outPort || !inPort) return false;
-
-      // 타입 호환성
-      if (outPort.type === "any" || inPort.type === "any") return true;
-      if (outPort.type !== inPort.type) return false;
-
-      // file accept 검사
-      if (outPort.type === "file" && inPort.accept?.length) {
-        if (outPort.accept?.length) {
-          const overlap = outPort.accept.filter((a) => inPort!.accept!.includes(a));
-          return overlap.length > 0;
-        }
-      }
-
-      return true;
-    },
+    (connection: Edge | Connection) => checkConnection(connection, nodes as any).ok,
     [nodes]
+  );
+
+  /* ── 연결 실패 시 사유 안내 ─────────────────
+     핸들 위에서 놓았는데 안 붙은 경우만 알린다. 빈 캔버스에 놓은 것은
+     '연결 취소'라서 알림이 오히려 방해가 된다. */
+  const onConnectEnd = useCallback(
+    (_e: MouseEvent | TouchEvent, state: any) => {
+      if (!state?.toHandle || state.isValid) return;
+      const conn: Connection = {
+        source: state.fromHandle?.nodeId ?? "",
+        sourceHandle: state.fromHandle?.id ?? null,
+        target: state.toHandle?.nodeId ?? "",
+        targetHandle: state.toHandle?.id ?? null,
+      };
+      const res = checkConnection(conn, nodes as any);
+      if (!res.ok) showToast(res.reason, "warn");
+    },
+    [nodes, showToast]
   );
 
   /* ── 드래그 앤 드롭 ────────────────────────── */
@@ -223,6 +208,25 @@ export function FlowCanvas() {
     [deleteSelected, nodes]
   );
 
+  /* ── 실행취소 단축키 (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ──
+     캔버스 포커스에 의존하면 팔레트·속성패널을 만진 뒤엔 안 먹는다 →
+     window에 걸되 입력 필드 안에서는 브라우저 기본 실행취소를 양보한다. */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k !== "z" && k !== "y") return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      const s = useStore.getState();
+      if (k === "y" || (k === "z" && e.shiftKey)) s.redo();
+      else s.undo();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   /* ── 미니맵 색상 ────────────────────────────── */
   const nodeColor = useCallback((node: any) => {
     const data = node.data as FlowNodeData;
@@ -251,6 +255,7 @@ export function FlowCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}

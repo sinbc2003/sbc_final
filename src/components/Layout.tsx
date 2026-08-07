@@ -10,6 +10,7 @@ import { HomeScreen } from "./HomeScreen";
 import { WorkflowManagerPage } from "./WorkflowManagerPage";
 import { ExecutionPanel } from "./ExecutionPanel";
 import { SettingsModal } from "./SettingsModal";
+import { Toast } from "./Toast";
 import { useStore } from "../store";
 
 export function Layout() {
@@ -42,6 +43,7 @@ export function Layout() {
       </div>
 
       <StatusBar />
+      <Toast />
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>

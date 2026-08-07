@@ -3,7 +3,7 @@ import {
   Play, Save, FolderOpen, FilePlus,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Settings, Loader2, CheckCircle2, AlertCircle, Workflow,
-  ChevronDown, Home, Square,
+  ChevronDown, Home, Square, Undo2, Redo2,
 } from "lucide-react";
 import { useStore } from "../store";
 
@@ -26,6 +26,10 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const workflowName = useStore((s) => s.workflowName);
   const dirty = useStore((s) => s.dirty);
   const workflowId = useStore((s) => s.workflowId);
+  const undo = useStore((s) => s.undo);
+  const redo = useStore((s) => s.redo);
+  const canUndo = useStore((s) => s.history.length > 0);
+  const canRedo = useStore((s) => s.future.length > 0);
 
   const isRunning = executionStatus === "running";
   const hasNodes = nodes.length > 0;
@@ -170,6 +174,20 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
           <button onClick={() => setMode("manager")} title="워크플로우 관리"
             className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
             <FolderOpen size={16} />
+          </button>
+
+          <div className="w-px h-5 bg-gray-200 mx-1" />
+
+          {/* 실행취소 / 다시실행 — 오삭제가 비가역이던 문제 해소 */}
+          <button onClick={undo} disabled={!canUndo} title="실행취소 (Ctrl+Z)"
+            className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700
+              disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+            <Undo2 size={16} />
+          </button>
+          <button onClick={redo} disabled={!canRedo} title="다시실행 (Ctrl+Shift+Z)"
+            className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700
+              disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+            <Redo2 size={16} />
           </button>
 
           <div className="w-px h-5 bg-gray-200 mx-1" />
