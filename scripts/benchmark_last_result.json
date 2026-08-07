@@ -24,11 +24,11 @@
     "correct": 495,
     "total": 495,
     "accuracy": 100.0,
-    "elapsed_s": 13.2,
+    "elapsed_s": 13.0,
     "gguf": "gemma-4-E2B-it-Q4_K_M.gguf",
     "quant": "Q4_K_M",
     "size_mb": 2963,
     "diffs": [],
-    "result_file": "C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\bench_hsf7q9lt\\LLM채움.hwpx"
+    "result_file": "C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\bench_k5hwo7fg\\LLM채움.hwpx"
   }
 }

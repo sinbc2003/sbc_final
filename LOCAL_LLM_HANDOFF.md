@@ -1070,7 +1070,18 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **번들 반영**: stage_bundle LORA→v3·default_settings local_lora→`gongmun_g4e2b_v3`, 번들 loras에서 v1 제거, NSIS·포터블 재생성. 부수: stage_bundle에 **rmtree AV 잠금 대응**(재시도+덮어쓰기 폴백 — AhnLab이 bundle 하위 핸들을 오래 잡는 실측).
 - **v4 데이터 개선 아이디어(다음 학습 시)**: ①전국 코퍼스의 붙임-회피 샘플 필터(completion 본문 길이 하한 or "붙임과 같이" 단독 본문 드롭) ②유형 균형(계획서·안내문 비중 확대 — 혼선 완화) ③repeat penalty 옵션 배선.
 
-### ⚠️ 세션 말미 머신 웨지 — 재부팅 후 확인 1건
+### v4 완료 — placeholder 전략 실증 ✅ (2026-08-08 새벽)
+**데이터 v4**(1,862쌍, 평균 954자): make_dataset에 ①기관-번호 `{기관명}-{문서번호}` 전면 치환(수원외고 줄임형·오타 변형까지 — 프롬프트 제목의 기관명은 의도적으로 보존: "기관을 말해도 완성문은 placeholder" 매핑) ②붙임-회피 본문(<80자) 89 드롭 ③**축약 프롬프트 증강 300쌍**("~공문 작성" 한 줄→완결문) ④계획서 업웨이트 ×2. **엔진 후처리 배선**: llm_generate `_fill_placeholders`({기관명}→settings general.school_name(신설)/○○학교, {문서번호}→○○○○, 3개 return 전부) + run_config에 school_name 전달(양 엔드포인트).
+**학습**: 재부팅으로 168/309에서 중단 → checkpoint-168 재개(--resume, §25 노하우 그대로) 총 ~77분, 워커 공존 스필에도 18-19s/step. → `gongmun_g4e2b_v4.gguf`.
+**검증 결과(v3 대비)**: ①그 단일 프롬프트("기간제 채용 공문작성") **140자 껍데기→505자 완결 공문**(개조식 사~아 항목까지) ②**수원 편향 4/4 소멸**(placeholder 정상 출력→후처리로 학교명 치환 확인) ③기관·개요 지정 시 개요 항목 전부 반영+2026 날짜 정확 ④혼선 대폭 완화 — 계획서는 완전한 계획서 형식(공문체 오염 0), 가통문은 내용 전개되나 공문 관련라인 잔재+반복 기미 ⑤벤치 회귀 495/495. 텔레그램 보고 msg 1119(원문+후처리본).
+**잔여 결함(v5 대상)**: 무맥락 단일 프롬프트에서 배경 환각(개요 주면 소멸 — 프리셋 경로는 무관)·간헐 반복(repeat penalty 배선 검토)·가통문 관련라인 잔재·학습 md의 `![image]` 마커 잔재 청소.
+**번들 v4 반영**: stage_bundle/default_settings(local_lora=v4, school_name 키 포함)·NSIS·포터블 재생성.
+**v5 진행**: Mac1 전국 겉공문 6,000건 배치 가동 중(pilot_download --per-org-cap 400, 새벽 완료 예상 — §24 체인). 수율 54% 기준 +3,000쌍 전망.
+
+### ⚠️ AV(V3 Lite)가 무서명 PyInstaller EXE 기동을 차단했던 건 — 해소 ✅
+2026-08-07 18시 이후 engine.exe(빌드 EXE)가 첫 스레드 Initialized로 정지·좀비화되던 문제 — **재부팅으로도 재현**되어 AV 실행시점 차단으로 확정, **V3 Lite 검사 예외에 `E:\sbc_lab\tf_build` + 리포 `packaging\dist` 추가(사용자)로 즉시 해소**(10초 기동). **배포 함의: 교사 PC에서도 동일 발생 가능 — 코드 서명 도입 or 설치 안내에 AV 예외 항목 필수**(§30 후보). 신규설치 E2E 통과: 엔진 기동+v3(→v4) 시드+프리셋 5종+워치독 정리(강제종료 후 engine 자동 소멸 실증).
+
+### ⚠️ 세션 말미 머신 웨지 — 재부팅 후 확인 1건 (해소됨 — 위 항목으로 대체)
 18시 이후 이 Desktop에서 **새로 기동하는 PyInstaller EXE(engine.exe)가 첫 스레드 Initialized 상태로 정지**(출력 0바이트, WS 1.9MB 고정)하고, taskkill된 프로세스가 좀비로 잔존(액세스 거부)하는 증상 발생 — python/curl 등 일반 프로세스는 정상. 필터 드라이버(AV 계열) 이미지-로드 콜백 웨지로 추정, **재부팅으로 해소될 것**. rmtree AV 잠금(stage_bundle/make_portable 폴백 추가)과 같은 시간대에 시작.
 **영향**: v3 최종 신규설치 E2E(포터블 재실행)만 미완 — 그 외 전 검증은 웨지 전 완료(A/B·혼선·벤치 495/495·번들 파일 검증). 참고로 같은 포터블 레이아웃의 신규설치 E2E는 v1 시드 시점(16:50)에 통과했고, 이후 델타는 어댑터 gguf 교체+설정 문자열뿐.
 **재부팅 후 할 일**: `E:\sbc_lab\tf_build\TeacherFlow-portable\TeacherFlow.exe` 실행 → %LOCALAPPDATA%\TeacherFlow 삭제 후 첫 실행 기준 settings.json의 local_lora=`gongmun_g4e2b_v3` 확인 → 공문 프리셋 1회 생성 확인. (당시 좀비: llama-server 1·engine 4 — 재부팅이 정리)
