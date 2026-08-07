@@ -33,6 +33,11 @@ async def startup():
     deps.initialize()
 
 
+@app.on_event("shutdown")
+async def shutdown():
+    deps.shutdown()
+
+
 # ── 라우터 등록 ──
 
 from engine.routes import system, workflows, execution, files, settings, chat, rag, live, hwp, form_assist
@@ -46,5 +51,10 @@ for router_module in [system, workflows, execution, files, settings, chat, rag, 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("ENGINE_PORT", "8406"))
-    uvicorn.run("engine.server:app", host="127.0.0.1", port=port, reload=True,
-                reload_dirs=[str(Path(__file__).parent)])
+    # frozen(배포)에서는 reload 금지 — uvicorn reloader가 EXE 자신을 재스폰해
+    # 무한 스폰 루프에 빠진다. 앱 객체 직접 전달로 재import도 회피.
+    if deps.IS_FROZEN:
+        uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
+    else:
+        uvicorn.run("engine.server:app", host="127.0.0.1", port=port, reload=True,
+                    reload_dirs=[str(Path(__file__).parent)])

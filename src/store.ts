@@ -1,3 +1,4 @@
+import { apiUrl } from "./apiBase";
 import { create } from "zustand";
 import {
   type Node,
@@ -374,7 +375,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     try {
       const wf = toWorkflowJSON();
-      const resp = await fetch("/api/run-stream", {
+      const resp = await fetch(apiUrl("/api/run-stream"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(wf),
@@ -507,7 +508,7 @@ export const useStore = create<AppState>((set, get) => ({
       ],
     }));
     try {
-      await fetch(`/api/run/${runId}/cancel`, { method: "POST" });
+      await fetch(apiUrl(`/api/run/${runId}/cancel`), { method: "POST" });
     } catch { /* 이미 끝난 실행 */ }
   },
 
@@ -614,7 +615,7 @@ export const useStore = create<AppState>((set, get) => ({
     wf.name = workflowName;
     wf.description = workflowDescription;
     try {
-      const res = await fetch("/api/workflows", {
+      const res = await fetch(apiUrl("/api/workflows"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflow: wf, workflow_id: workflowId }),
@@ -632,7 +633,7 @@ export const useStore = create<AppState>((set, get) => ({
     wf.name = name;
     wf.description = description ?? "";
     try {
-      const res = await fetch("/api/workflows", {
+      const res = await fetch(apiUrl("/api/workflows"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflow: wf }),
@@ -651,7 +652,7 @@ export const useStore = create<AppState>((set, get) => ({
     // localStorage + 서버 양쪽에 저장
     try {
       localStorage.setItem("tf_autosave", JSON.stringify(wf));
-      fetch("/api/autosave", {
+      fetch(apiUrl("/api/autosave"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflow: wf }),
@@ -669,7 +670,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ workflowName: data.name || "복구된 워크플로우", dirty: true });
         return true;
       }
-      const res = await fetch("/api/autosave");
+      const res = await fetch(apiUrl("/api/autosave"));
       const { data } = await res.json();
       if (data) {
         get().loadWorkflowJSON(data);

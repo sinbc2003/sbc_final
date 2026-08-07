@@ -3,6 +3,7 @@ import { Play, Pencil, Loader2, CheckCircle2, AlertCircle, Download, ExternalLin
 import { MiniFlowChart } from "./MiniFlowChart";
 import { useStore } from "../store";
 import type { WorkflowJSON } from "../types";
+import { apiUrl } from "../apiBase";
 
 interface OutputFile {
   name: string;
@@ -32,7 +33,7 @@ export function ChatWorkflowPreview({ workflow, workflowId }: Props) {
   const handleRun = useCallback(async () => {
     setRunState("running");
     try {
-      const res = await fetch("/api/run", {
+      const res = await fetch(apiUrl("/api/run"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(workflow),
@@ -85,22 +86,28 @@ export function ChatWorkflowPreview({ workflow, workflowId }: Props) {
   }, [workflow, addChatMessage]);
 
   const openFile = useCallback((path: string) => {
-    fetch("/api/files/open", {
+    fetch(apiUrl("/api/files/open"), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path }),
     }).catch(() => {});
   }, []);
 
   const openFolder = useCallback((path: string) => {
-    fetch("/api/files/open-folder", {
+    fetch(apiUrl("/api/files/open-folder"), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path }),
     }).catch(() => {});
   }, []);
 
   const downloadFile = useCallback((path: string) => {
-    const url = `/api/files/download-path?path=${encodeURIComponent(path)}`;
-    window.open(url, "_blank");
+    // window.open(_blank)은 Tauri WebView에서 새 창 차단/별도 webview로 떠서
+    // 다운로드가 성립하지 않는다 — 앵커 클릭 방식 + 절대 엔진 URL.
+    const a = document.createElement("a");
+    a.href = apiUrl(`/api/files/download-path?path=${encodeURIComponent(path)}`);
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }, []);
 
   const formatSize = (bytes: number) => {

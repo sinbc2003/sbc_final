@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useState, useEffect } from "react";
 import {
   FileText, Files, Tag, Database, Table2,
@@ -58,7 +59,7 @@ export function HomeScreen() {
 
   const fetchPresets = () => {
     setLoading(true);
-    fetch("/api/presets")
+    fetch(apiUrl("/api/presets"))
       .then((r) => r.json())
       .then((data) => setPresets(Array.isArray(data) ? data : []))
       .catch(() => {})

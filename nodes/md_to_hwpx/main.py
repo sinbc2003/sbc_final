@@ -591,6 +591,7 @@ def _convert_with_kordoc(md_text: str, output_path: str) -> str | None:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
         os.unlink(md_tmp)
@@ -647,6 +648,7 @@ def _convert_with_pypandoc_hwpx(md_text: str, output_path: str) -> str | None:
         result = subprocess.run(
             ["pypandoc-hwpx", md_tmp, "-o", output_path],
             capture_output=True, text=True, timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         os.unlink(md_tmp)
 

@@ -3,12 +3,13 @@ import { Layout } from "./components/Layout";
 import { useStore } from "./store";
 import { DEFAULT_NODE_DEFINITIONS } from "./defaultNodes";
 import type { NodeDefinition } from "./types";
+import { apiUrl } from "./apiBase";
 
 /* ── 초기 노드 정의 로드 ─────────────────────────── */
 async function loadNodeDefinitions(): Promise<NodeDefinition[]> {
   let engineNodes: NodeDefinition[] = [];
   try {
-    const resp = await fetch("/api/nodes");
+    const resp = await fetch(apiUrl("/api/nodes"));
     if (resp.ok) engineNodes = await resp.json();
   } catch {}
 

@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Search, Clock, Copy, Trash2, Star, FileJson,
@@ -71,7 +72,7 @@ export function WorkflowManagerPage() {
     setLoading(true);
     try {
       const [wfRes, histRes, preRes] = await Promise.all([
-        fetch("/api/workflows"), fetch("/api/history"), fetch("/api/presets"),
+        fetch(apiUrl("/api/workflows")), fetch(apiUrl("/api/history")), fetch(apiUrl("/api/presets")),
       ]);
       if (wfRes.ok) setWorkflows(await wfRes.json());
       if (histRes.ok) setHistory(await histRes.json());
@@ -85,7 +86,7 @@ export function WorkflowManagerPage() {
   // 워크플로우 열기
   const handleOpen = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/workflows/${id}`);
+      const res = await fetch(apiUrl(`/api/workflows/${id}`));
       if (res.ok) {
         const data = await res.json();
         loadWorkflowJSON(data);
@@ -97,13 +98,13 @@ export function WorkflowManagerPage() {
   // 삭제
   const handleDelete = useCallback(async (id: string, name: string) => {
     if (!confirm(`"${name}" 삭제?`)) return;
-    await fetch(`/api/workflows/${id}`, { method: "DELETE" });
+    await fetch(apiUrl(`/api/workflows/${id}`), { method: "DELETE" });
     refresh();
   }, [refresh]);
 
   // 복제
   const handleDuplicate = useCallback(async (id: string) => {
-    await fetch(`/api/workflows/${id}/duplicate`, { method: "POST" });
+    await fetch(apiUrl(`/api/workflows/${id}/duplicate`), { method: "POST" });
     refresh();
   }, [refresh]);
 
@@ -230,7 +231,7 @@ export function WorkflowManagerPage() {
                       <button
                         key={f.path}
                         onClick={() => {
-                          fetch("/api/files/open", {
+                          fetch(apiUrl("/api/files/open"), {
                             method: "POST", headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ path: f.path }),
                           }).catch(() => {});

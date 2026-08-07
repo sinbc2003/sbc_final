@@ -54,7 +54,7 @@ async def list_loras():
 
 @router.get("/api/design-skills")
 async def list_design_skills():
-    skills_dir = deps.ROOT / "engine" / "skills" / "design"
+    skills_dir = deps.SKILLS_DIR / "design"
     result = []
     labels = {
         "default": "기본", "official": "공문서", "modern": "모던 클린",

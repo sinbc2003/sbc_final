@@ -1,13 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicholasgasior/tauri/dev/crates/tauri/capability-schema.json",
   "identifier": "default",
-  "description": "기본 권한 — 창 관리, 셸 실행",
+  "description": "기본 권한 — 창 관리(엔진은 Rust가 직접 spawn, 셸 권한 불필요)",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "shell:allow-open",
-    "shell:allow-execute",
-    "shell:allow-spawn",
-    "shell:default"
+    "core:default"
   ]
 }

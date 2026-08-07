@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useCallback, useRef, useEffect, useState } from "react";
 import {
   ReactFlow,
@@ -125,7 +126,7 @@ export function FlowCanvas() {
           try {
             const form = new FormData();
             form.append("file", file);
-            const res = await fetch("/api/files/upload", { method: "POST", body: form });
+            const res = await fetch(apiUrl("/api/files/upload"), { method: "POST", body: form });
             if (res.ok) {
               const data = await res.json();
               addFileNode(dropPos, data.path, data.name);

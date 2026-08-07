@@ -18,7 +18,12 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     rag_settings["enabled"] = True
 
     from pathlib import Path
-    data_dir = Path(context.get("temp_dir", ".")).parent.parent / "data"
+    # 엔진이 context로 주는 실제 데이터 루트 사용 — 예전 temp_dir 역산은
+    # %TEMP% 부모의 엉뚱한 위치에 chroma를 만들던 버그.
+    if context.get("data_dir"):
+        data_dir = Path(context["data_dir"])
+    else:
+        data_dir = Path(context.get("temp_dir", ".")).parent.parent / "data"
 
     vs = VectorStore(data_dir=data_dir, settings=rag_settings)
     search_result = vs.query(

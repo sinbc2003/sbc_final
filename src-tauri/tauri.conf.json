@@ -10,50 +10,32 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "TeacherFlow — 교사 업무 자동화",
-        "width": 1400,
-        "height": 900,
-        "minWidth": 1000,
-        "minHeight": 600,
-        "center": true,
-        "decorations": true,
-        "resizable": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
-  },
-  "plugins": {
-    "shell": {
-      "open": true,
-      "scope": [
-        {
-          "name": "python-engine",
-          "cmd": "python",
-          "args": ["-m", "engine.server"]
-        }
-      ]
+    ],
+    "resources": {
+      "../packaging/dist/engine": "engine",
+      "../nodes": "nodes",
+      "../data/presets": "presets"
     },
-    "updater": {
-      "endpoints": [
-        "https://updates.teacherflow.com/{{target}}/{{arch}}/{{current_version}}"
-      ],
-      "dialog": true,
-      "pubkey": ""
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["Korean"],
+        "displayLanguageSelector": false
+      }
     }
   }
 }

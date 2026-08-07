@@ -327,8 +327,12 @@ class PipelineRunner:
 
             # context 구성
             temp_dir = tempfile.mkdtemp(prefix=f"tf_{node_id}_")
+            from engine.paths import DATA_DIR
             context = {
                 "temp_dir": temp_dir,
+                # rag 노드 등이 temp_dir에서 data/를 역산하던 버그 차단 —
+                # 엔진 본체와 같은 데이터 루트를 명시 전달한다.
+                "data_dir": str(DATA_DIR),
                 "progress": lambda v, _nid=node_id: self._progress(_nid, v),
                 "log": lambda msg, _nid=node_id: self._log(_nid, msg),
                 "llm": self._llm,
@@ -389,7 +393,17 @@ class PipelineRunner:
             self._on_progress(node_id, value)
 
     def _log(self, node_id: str, message: str):
-        if self._on_log:
-            self._on_log(node_id, message)
-        else:
-            print(f"[{node_id}] {message}")
+        try:
+            if self._on_log:
+                self._on_log(node_id, message)
+            else:
+                print(f"[{node_id}] {message}")
+        except UnicodeEncodeError:
+            # cp949 콘솔(교사 PC 기본)에서 em-dash 등 비cp949 문자가 로그에
+            # 있으면 print가 던지고, 그게 노드 실패로 둔갑한다(frozen 실측).
+            # 로깅은 절대 실행을 죽이면 안 된다.
+            safe = f"[{node_id}] {message}".encode("ascii", "backslashreplace").decode("ascii")
+            try:
+                print(safe)
+            except Exception:
+                pass

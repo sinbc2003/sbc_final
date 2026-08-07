@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
   ArrowLeft, Upload, Play, Loader2, CheckCircle2, AlertCircle,
@@ -41,7 +42,7 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
 
   // 모델 목록 로드
   useEffect(() => {
-    fetch("/api/models")
+    fetch(apiUrl("/api/models"))
       .then((r) => r.json())
       .then((data: ModelInfo[]) => {
         // 로컬(공문 LoRA 포함) + API 모두 노출 — 로컬 모델을 제외하면
@@ -93,7 +94,7 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
     try {
       const fd = new FormData();
       fd.append("file", f.file, f.name);
-      const res = await fetch("/api/form-open-template", {
+      const res = await fetch(apiUrl("/api/form-open-template"), {
         method: "POST",
         body: fd,
       });
@@ -135,7 +136,7 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
 
     try {
       console.log("[FormAssist] fetch 시작");
-      const res = await fetch("/api/form-assist", {
+      const res = await fetch(apiUrl("/api/form-assist"), {
         method: "POST",
         body: formData,
       });
@@ -160,7 +161,7 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
 
   // 파일 열기
   const openFile = useCallback((path: string) => {
-    fetch("/api/files/open", {
+    fetch(apiUrl("/api/files/open"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path }),

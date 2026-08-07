@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import os
+import re
 import asyncio
 import concurrent.futures
 from pathlib import Path
@@ -12,11 +13,16 @@ from engine import deps
 router = APIRouter()
 
 
+def _safe_name(filename: str | None) -> str:
+    """files.py 업로드와 동일한 파일명 살균 — 경로 구분자 탈출 차단."""
+    return re.sub(r'[<>:"/\\|?*]', '_', filename or "upload")
+
+
 @router.post("/api/form-open-template")
 async def form_assist_open_template(file: UploadFile = File(...)):
-    upload_dir = deps.ROOT / "data" / "uploads"
-    upload_dir.mkdir(exist_ok=True)
-    dest = upload_dir / file.filename
+    upload_dir = deps.UPLOADS_DIR
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / _safe_name(file.filename)
     content = await file.read()
     dest.write_bytes(content)
 
@@ -46,15 +52,16 @@ async def form_assist(
 ):
     from engine.form_assist import run_form_assist, scan_hwp_structure, fill_hwp_by_cells
 
-    upload_dir = deps.ROOT / "data" / "uploads"
-    upload_dir.mkdir(exist_ok=True)
+    upload_dir = deps.UPLOADS_DIR
+    upload_dir.mkdir(parents=True, exist_ok=True)
     file_infos = []
     for uf in files:
-        dest = upload_dir / uf.filename
+        name = _safe_name(uf.filename)
+        dest = upload_dir / name
         content = await uf.read()
         if not dest.exists():
             dest.write_bytes(content)
-        file_infos.append({"path": str(dest), "name": uf.filename})
+        file_infos.append({"path": str(dest), "name": name})
 
     logs = []
     def log_cb(msg): logs.append(msg)

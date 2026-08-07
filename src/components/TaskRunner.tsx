@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Upload, Play, Loader2, CheckCircle2, AlertCircle,
@@ -137,7 +138,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
 
   /* 프리셋 로드 */
   useEffect(() => {
-    fetch(`/api/workflows/${presetId}`)
+    fetch(apiUrl(`/api/workflows/${presetId}`))
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data: PresetFull) => {
         setPreset(data);
@@ -161,7 +162,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await fetch("/api/files/upload", { method: "POST", body: formData });
+      const res = await fetch(apiUrl("/api/files/upload"), { method: "POST", body: formData });
       const data = await res.json();
       if (data.path) {
         updateInput(idx, data.path);
@@ -217,7 +218,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
     wf.user_inputs = wf.user_inputs || [];
 
     try {
-      const resp = await fetch("/api/run-stream", {
+      const resp = await fetch(apiUrl("/api/run-stream"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(wf),
@@ -298,13 +299,13 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
       timestamp: Date.now(),
     }]);
     try {
-      await fetch(`/api/run/${runId}/cancel`, { method: "POST" });
+      await fetch(apiUrl(`/api/run/${runId}/cancel`), { method: "POST" });
     } catch { /* 이미 끝난 실행 */ }
   }, [runId]);
 
   /* 파일 열기 */
   const openFile = useCallback((path: string) => {
-    fetch("/api/files/open", {
+    fetch(apiUrl("/api/files/open"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path }),

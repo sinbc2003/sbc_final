@@ -1022,7 +1022,24 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 ### 패키징 현황 파악 (착수 시점)
 - **도구 준비됨**: Python 3.10.11 + PyInstaller 6.19.0 / Rust 1.94 + cargo / Node 22.
 - **src-tauri = 초기 커밋의 뼈대뿐**: 창 설정·shell plugin(`python -m engine.server` 스코프 — 교사 PC에선 무의미)·updater 엔드포인트 placeholder. **엔진 사이드카 기동/종료/헬스체크 배선 없음**. 실질 패키징 작업은 전부 이번 트랙에서.
-- 5렌즈 정찰(동적 import/경로/외부 바이너리/프론트 결합/의존성 무게) 워크플로우 결과는 아래에 추가 예정.
+- 5렌즈 정찰(동적 import/경로/외부 바이너리/프론트 결합/의존성 무게) 완료 — 5 에이전트/196 도구호출. 전문은 세션 scratchpad `wgr44f1ml.output`, 요지는 아래.
+
+### 5렌즈 정찰 결과 (블로커 및 핵심 결정)
+**블로커**: ①`deps.py:15` ROOT=`__file__` — frozen에서 nodes 0개·data 휘발·모델 미발견, import 시점 mkdir 부작용(Program Files에서 기동 불가) ②노드 30개가 동적 로딩이라 PyInstaller 사각지대 — `engine.table_utils`(engine 내 정적참조 0건)와 노드 전용 서드파티 14종(fitz·PIL·pytesseract·docx·pptx·openpyxl·lxml·olefile·hwp5·reportlab·pypandoc·bs4·requests·hwpx) hiddenimports 필수 ③`server.py:49` uvicorn(문자열, reload=True) — frozen 자기복제 스폰 ④프론트 fetch 58건 전부 상대경로(`/api/...`) — Tauri 프로덕션(tauri.localhost)에서 전멸, API_BASE 헬퍼 신설+치환 필요 ⑤Tauri는 시스템 python 스폰 가정(externalBin 없음)+루트 package.json이 inline-ai 잔재라 `npm run build` 불가(원본은 package-lock에 잔존, **npm install 금지**) ⑥dev 환경 그대로 빌드 시 vector_store lazy import 경유로 torch 453MB+onnxruntime 408MB 등 1.2GB 유입 — excludes 필수.
+**must-handle 요지**: llama-server 종료 훅 부재(고아 프로세스)·stdout DEVNULL(진단 불가)·전 subprocess CREATE_NO_WINDOW 미지정(콘솔 깜빡임)·sinbc/D: 하드코딩 경로·ANSI argv 한글 경로 제약(-m도)·HF 임베딩 온라인 다운로드(차단망 RAG 불능→1차 제외)·engine/skills·pyhwpx DLL·hwp5 데이터 datas 수집·프리셋 5종 시드·**data/ 실비밀키(.secrets.json)+PII 업로드 파일 배포 절대 금지**·rag 노드 temp_dir 역산 버그(현재도 %LOCALAPPDATA%\data에 엉뚱한 chroma — 기존 버그)·uvicorn 동적모듈 5종+tabulate hiddenimports·pywin32 gencache frozen 함정·kordoc(npx)은 교사 PC 무의미(폴백 공식화)·**pandoc은 죽은 코드라 번들 불필요**(md_to_pdf는 reportlab 직행)·vendor/=nodes 사본 31종(참조 0건, 번들 제외)·google SDK 50MB(namespace 패키지).
+**크기 실측**: RAG·클라우드 제외 시 필수 패키지 ~210MB → onedir 200~250MB + llama-server(Vulkan ~90MB) + GGUF(E4B 3.86GB / E2B별도) + LoRA 3종(~130MB).
+**아키텍처 결정**: onedir(onefile 금지 — nodes 실파일 필요·_MEIPASS 휘발) / 리소스 루트=EXE 옆(TEACHERFLOW_HOME 오버라이드) / 데이터=%LOCALAPPDATA%\TeacherFlow(frozen에서만 — dev는 기존 그대로) / RAG·kordoc·tesseract 1차 배포 제외 / 프리셋은 첫 기동 시드 복사.
+
+### 구현 1단계 완료 — 엔진 EXE 빌드·스모크 ✅ (2026-08-07)
+**신설**: `engine/paths.py`(ROOT/DATA_DIR/NODES_DIR/MODELS_DIR/SKILLS_DIR 단일 진실 + seed_presets — dev 동작 무변경, frozen만 분기) · `packaging/engine_entry.py`(freeze_support+객체 전달 uvicorn+stdout UTF-8 reconfigure) · `packaging/engine.spec`(onedir, collect_submodules(engine/uvicorn/reportlab/hwpx/hwp5), 노드 서드파티 hiddenimports 전수, collect_data_files(pyhwpx/hwp5)+engine/skills datas, **copy_metadata(openpyxl/tabulate/lxml)**, torch 스택 excludes, `-X utf8` OPTION).
+**엔진 수정**: deps가 paths 사용(+shutdown 훅 — frozen에서만 llama-server kill, dev 웜서버 유지) · server.py shutdown 이벤트+frozen reload 금지 · routes 스킬경로 SKILLS_DIR · form_assist 업로드 UPLOADS_DIR+파일명 살균 · runner context에 `data_dir` 전달 → **rag 노드 temp_dir 역산 버그 수정**(기존에도 %LOCALAPPDATA%\data 오염) · runner._log UnicodeEncodeError 가드 · loader 실패 모듈 sys.modules 제거 · llm_manager: 번들 `ROOT/llama/llama-server.exe` 후보 1순위+기동 로그 파일(DATA_DIR/logs/llama-server.log)+CREATE_NO_WINDOW+바이너리 부재 명시 에러 · tasklist/오피스 start/노드 subprocess 전부 CREATE_NO_WINDOW · fitz→pymupdf 별칭 통일(DLL 24MB 중복 제거) · requirements.txt 실측 재작성.
+**빌드**: `pyinstaller packaging/engine.spec --distpath packaging/dist --workpath E:\sbc_lab\tf_build\pyi_work` → **onedir 285MB**. ⚠️ 빌드 전 engine.exe 종료 필수(rmtree 잠금), 출력 파이프로 exit code 가리지 말 것.
+**frozen 실측 함정 2개(잡음)**: ①**cp949 콘솔에서 로그의 em-dash가 UnicodeEncodeError→노드 실패로 둔갑**(dev는 PYTHONUTF8=1이라 은폐돼 있었음. 교사 PC 전부 cp949!) → 엔트리 reconfigure+spec `-X utf8`+_log 가드 3중 방어 ②**pandas가 openpyxl 버전을 배포 메타데이터로 검사 — 메타 없으면 'Invalid version: unknown'으로 표 추출 전멸** → copy_metadata 3종.
+**스모크(EXE, TEACHERFLOW_HOME=리포/TEACHERFLOW_DATA=스크래치)**: 노드 31개 전부 로드·health/nodes/rag/stats 200 · md→docx/hwpx/pdf 3분기(em-dash 포함) 성공 · **xlsx 왕복**(file_input 자동변환→xlsx_to_md→column_mapping(mapping_rules)→save_xlsx) 국→국어·수→수학 반영·값 무변경. dev 회귀: 오프라인 104 PASS + check:nodes + tsc 클린.
+
+### 구현 2단계 — Tauri·프론트 배선 (진행 중)
+package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/tauri 스크립트 — **npm install 하지 말 것**, node_modules 이미 정합) · `src/apiBase.ts` 신설(dev=상대경로/Tauri 프로덕션=`http://127.0.0.1:${window.__ENGINE_PORT__}`) · **fetch 58건 전부 apiUrl() 치환**(+ChatWorkflowPreview 다운로드 앵커 방식) · lib.rs 재작성: pick_port(8406/빈 포트)→엔진 spawn(리소스/engine/engine.exe, TEACHERFLOW_HOME=리소스 루트, CREATE_NO_WINDOW)→RunEvent::Exit에서 kill, 창은 코드 생성(initialization_script로 포트 주입) · plugin-shell 제거(Cargo/capabilities/conf) · tauri.conf: updater/python scope 제거, resources={engine onedir, nodes, data/presets→presets}, NSIS perMachine(ASCII 경로 보장 — llama-server ANSI argv. 관리자 없는 학교 PC 대응은 -m cwd 트릭 확장 후 perUser 검토).
+**남은 것**: 폰트 CDN 제거(Pretendard 로컬 동봉), tauri build 실행(NSIS), 번들 스테이징(llama Vulkan 빌드+GGUF+LoRA), 설치본 E2E.
 
 ## 17. 작업 기록 — 2026-07-10 (form_assist HWPX 그리드 경로 + json_schema 강제 ✅ = §16 1순위 완료)
 

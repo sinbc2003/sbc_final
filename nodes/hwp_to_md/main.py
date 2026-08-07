@@ -23,6 +23,7 @@ def _convert_with_kordoc(hwp_path: str) -> str | None:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode == 0 and result.stdout.strip():
             import json

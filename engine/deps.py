@@ -12,7 +12,7 @@ import concurrent.futures as _cf
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).parent.parent
+from engine.paths import ROOT, DATA_DIR, NODES_DIR, MODELS_DIR, SKILLS_DIR, IS_FROZEN
 
 # ── 싱글턴 인스턴스 ──
 
@@ -25,16 +25,16 @@ from engine.vector_store import VectorStore
 
 registry = NodeRegistry()
 llm_manager: LLMManager | None = None
-store = DataStore(ROOT / "data")
-settings_mgr = SettingsManager(ROOT / "data")
+store = DataStore(DATA_DIR)
+settings_mgr = SettingsManager(DATA_DIR)
 marketplace = NodeMarketplace(
-    nodes_dir=ROOT / "nodes",
-    data_dir=ROOT / "data",
+    nodes_dir=NODES_DIR,
+    data_dir=DATA_DIR,
     registry_url=settings_mgr.get("nodes", "marketplace_url", ""),
 )
 vector_store: VectorStore | None = None
 
-UPLOADS_DIR = ROOT / "data" / "uploads"
+UPLOADS_DIR = DATA_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -114,21 +114,30 @@ def initialize():
     except ImportError:
         pass
 
-    loaded = registry.load_all(ROOT / "nodes")
+    # 배포 시드 프리셋 복사 (dev에는 시드 폴더가 없어 no-op)
+    try:
+        from engine.paths import seed_presets
+        seeded = seed_presets()
+        if seeded:
+            print(f"[Engine] 프리셋 시드 {seeded}개 복사")
+    except Exception as e:
+        print(f"[WARN] 프리셋 시드 실패: {e}")
+
+    loaded = registry.load_all(NODES_DIR)
 
     # LLM config
     llm_config = settings_mgr.get_llm_config()
     for k, env in [("claude_api_key", "ANTHROPIC_API_KEY"), ("openai_api_key", "OPENAI_API_KEY"), ("gemini_api_key", "GEMINI_API_KEY")]:
         if not llm_config.get(k):
             llm_config[k] = os.environ.get(env, "")
-    llm_manager = LLMManager(models_dir=ROOT / "models", config=llm_config)
+    llm_manager = LLMManager(models_dir=MODELS_DIR, config=llm_config)
 
     # RAG 벡터스토어
     rag_settings = settings_mgr.get_all().get("rag", {})
     raw_rag = {}
     for k in ("enabled", "collection_name", "embedding_model", "chunk_size", "chunk_overlap", "sync_enabled", "sync_url"):
         raw_rag[k] = settings_mgr.get("rag", k, rag_settings.get(k))
-    vector_store = VectorStore(data_dir=ROOT / "data", settings=raw_rag)
+    vector_store = VectorStore(data_dir=DATA_DIR, settings=raw_rag)
 
     stats = store.get_stats()
     print(f"[Engine] 노드 {len(loaded)}개, 워크플로우 {stats['workflow_count']}개, 히스토리 {stats['history_count']}개")
@@ -141,4 +150,21 @@ def reinit_llm():
     for k, env in [("claude_api_key", "ANTHROPIC_API_KEY"), ("openai_api_key", "OPENAI_API_KEY"), ("gemini_api_key", "GEMINI_API_KEY")]:
         if not llm_config.get(k):
             llm_config[k] = os.environ.get(env, "")
-    llm_manager = LLMManager(models_dir=ROOT / "models", config=llm_config)
+    llm_manager = LLMManager(models_dir=MODELS_DIR, config=llm_config)
+
+
+def shutdown():
+    """앱 종료 시 호출 — llama-server 등 자식 프로세스 정리.
+
+    dev에서는 웜 llama-server를 리로드 간 유지하기 위해 죽이지 않는다
+    (기존 동작 보존). 배포(frozen)에서는 고아 프로세스가 VRAM을 문 채
+    남으므로 반드시 정리한다.
+    """
+    global llm_manager
+    if not (IS_FROZEN or os.environ.get("TEACHERFLOW_KILL_LLAMA") == "1"):
+        return
+    if llm_manager is not None:
+        try:
+            llm_manager.cleanup()
+        except Exception as e:
+            print(f"[WARN] LLM 정리 실패: {e}")

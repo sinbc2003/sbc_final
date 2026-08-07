@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import {
   ChevronDown, ChevronUp, X, CheckCircle2, AlertCircle, Loader2,
@@ -69,14 +70,14 @@ function OutputCard({ nodeId, nodeName, portName, value, catColor }: {
   const isLong = value.length > 300;
 
   const openFile = useCallback(() => {
-    fetch("/api/files/open", {
+    fetch(apiUrl("/api/files/open"), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: value }),
     }).catch(() => {});
   }, [value]);
 
   const openFolder = useCallback(() => {
-    fetch("/api/files/open-folder", {
+    fetch(apiUrl("/api/files/open-folder"), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: value }),
     }).catch(() => {});

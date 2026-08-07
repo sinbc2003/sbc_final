@@ -1,13 +1,14 @@
 import { Bot, User, Monitor, CheckCircle, XCircle, FileCheck, FolderOpen } from "lucide-react";
 import { ChatWorkflowPreview } from "../ChatWorkflowPreview";
 import type { ChatMessage } from "../../types";
+import { apiUrl } from "../../apiBase";
 
 export function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.role === "user";
 
   const openFile = async (filePath: string) => {
     try {
-      await fetch("/api/files/open", {
+      await fetch(apiUrl("/api/files/open"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: filePath }),
@@ -18,7 +19,7 @@ export function MessageBubble({ msg }: { msg: ChatMessage }) {
   const openFolder = async (filePath: string) => {
     const dir = filePath.replace(/[/\\][^/\\]+$/, "");
     try {
-      await fetch("/api/files/open", {
+      await fetch(apiUrl("/api/files/open"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: dir }),

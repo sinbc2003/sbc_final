@@ -1,11 +1,41 @@
-# TeacherFlow Engine 의존성
-pyyaml>=6.0
-psutil>=5.9
-pymupdf>=1.25.0
-pandas>=2.0
-tabulate>=0.9
+# TeacherFlow Engine 의존성 — 실사용 import 전수 대조(2026-08-07, §28 정찰)
+# 이 목록만으로 클린 venv에서 엔진+노드 전체가 동작해야 한다(패키징 빌드 전제).
 
-# LLM API (선택)
+# ── 코어 서버 ──
+fastapi>=0.115
+uvicorn>=0.30
+pydantic>=2.0
+python-multipart>=0.0.9   # FastAPI UploadFile/Form
+pyyaml>=6.0
+requests>=2.31            # llama-server 헬스체크·url_to_md
+psutil>=5.9               # 메모리 프로필
+
+# ── 문서 처리 (노드 + engine/hwpml) ──
+pandas>=2.0
+tabulate>=0.9             # pandas.to_markdown 지연 의존
+openpyxl>=3.1             # xlsx 읽기/쓰기 (pandas 엔진 겸용)
+lxml>=5.0                 # hwpx XML
+pymupdf>=1.25.0           # PDF (fitz 별칭 금지 — pymupdf로 통일)
+Pillow>=10.0              # 이미지 노드
+python-docx>=1.1
+python-pptx>=1.0
+reportlab>=4.0            # md_to_pdf (pandoc 미사용 — reportlab 직행)
+olefile>=0.47             # .hwp 레거시
+pyhwp>=0.1b15             # hwp5 텍스트 추출
+python-hwpx>=2.10         # hwpx builder (md_to_hwpx 실질 경로)
+beautifulsoup4>=4.12      # url_to_md
+pypandoc>=1.13            # 선언만 — 실행 경로는 죽은 코드(정찰 §28), 제거 후보
+pytesseract>=0.3          # image_to_text (tesseract.exe 별도 — 1차 배포 미지원)
+
+# ── Windows COM (한/글·오피스 라이브) ──
+pywin32>=306
+pyhwpx>=1.7
+
+# ── LLM API (선택 — 로컬 llama-server는 의존성 불필요) ──
 # anthropic>=0.40
 # openai>=1.50
 # google-generativeai>=0.8
+
+# ── RAG (선택 — 1차 배포 제외: torch 스택 1.2GB + 온라인 임베딩 다운로드) ──
+# chromadb>=0.5
+# sentence-transformers>=3.0

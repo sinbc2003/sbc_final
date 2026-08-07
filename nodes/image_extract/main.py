@@ -12,7 +12,7 @@ from pathlib import Path
 
 def _extract_from_pdf(pdf_path: str, output_dir: str, fmt: str) -> list[str]:
     """PDF에서 이미지 추출."""
-    import fitz  # pymupdf
+    import pymupdf as fitz  # fitz 별칭 — 패키지 이중수집(DLL 중복) 방지
 
     doc = fitz.open(pdf_path)
     image_paths = []

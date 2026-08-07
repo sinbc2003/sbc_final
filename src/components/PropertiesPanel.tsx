@@ -3,6 +3,7 @@ import { Settings2, Info, X, ChevronRight, Upload, FileText, Loader2 } from "luc
 import { useStore } from "../store";
 import { getCategoryColor, getCategoryBg } from "../constants";
 import type { FlowNodeData, ParamDef } from "../types";
+import { apiUrl } from "../apiBase";
 
 /* ── 파일 선택 필드 ──────────────────────────────── */
 
@@ -25,7 +26,7 @@ function FileField({ value, onChange, accept }: {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch("/api/files/upload", { method: "POST", body: form });
+      const res = await fetch(apiUrl("/api/files/upload"), { method: "POST", body: form });
       if (res.ok) {
         const data = await res.json();
         onChange(data.path);
@@ -86,7 +87,7 @@ function ModelSelector({ value, onChange }: { value: string; onChange: (v: strin
 
   useEffect(() => {
     if (loaded) return;
-    fetch("/api/models").then(r => r.ok ? r.json() : []).then((data: ModelInfo[]) => {
+    fetch(apiUrl("/api/models")).then(r => r.ok ? r.json() : []).then((data: ModelInfo[]) => {
       setModels(data);
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -148,7 +149,7 @@ function LoraSelector({ value, onChange }: { value: string; onChange: (v: string
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch("/api/loras").then(r => r.ok ? r.json() : []).then((d: LoraInfo[]) => {
+    fetch(apiUrl("/api/loras")).then(r => r.ok ? r.json() : []).then((d: LoraInfo[]) => {
       setLoras(Array.isArray(d) ? d : []);
       setLoaded(true);
     }).catch(() => setLoaded(true));

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { GitBranch, Cpu, Wifi, WifiOff, Database, Monitor } from "lucide-react";
 import { useStore } from "../store";
+import { apiUrl } from "../apiBase";
 
 interface LiveApp { name: string; connected: boolean; doc_name: string }
 
@@ -18,7 +19,7 @@ export function StatusBar() {
   // 엔진 상태 주기적 확인 (10초)
   const checkEngine = useCallback(async () => {
     try {
-      const res = await fetch("/api/health", { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(apiUrl("/api/health"), { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
         const data = await res.json();
         setEngineStatus("online");
@@ -31,7 +32,7 @@ export function StatusBar() {
     }
     // RAG 상태
     try {
-      const res = await fetch("/api/rag/stats", { signal: AbortSignal.timeout(2000) });
+      const res = await fetch(apiUrl("/api/rag/stats"), { signal: AbortSignal.timeout(2000) });
       if (res.ok) {
         const data = await res.json();
         setRagCount(data.count ?? 0);
@@ -39,7 +40,7 @@ export function StatusBar() {
     } catch {}
     // 라이브 앱 감지
     try {
-      const res = await fetch("/api/live/detect", { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(apiUrl("/api/live/detect"), { signal: AbortSignal.timeout(3000) });
       if (res.ok) {
         const data = await res.json();
         if (!data.error) setLiveApps(data);

@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useEffect, useRef, useCallback, useState } from "react";
 import {
   Play, Save, FolderOpen, FilePlus,
@@ -91,7 +92,7 @@ export function Toolbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
     }
     if (!wid) return;
     try {
-      const r = await fetch(`/api/workflows/${wid}/preset`, { method: "POST" });
+      const r = await fetch(apiUrl(`/api/workflows/${wid}/preset`), { method: "POST" });
       alert(r.ok ? "홈 화면에 카드로 등록되었습니다." : "등록에 실패했습니다.");
     } catch {
       alert("등록에 실패했습니다.");

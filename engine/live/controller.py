@@ -57,6 +57,7 @@ class LiveController(HwpMixin, ExcelMixin, PptMixin, WordMixin):
             ps = subprocess.run(
                 ["tasklist", "/NH", "/FO", "CSV"],
                 capture_output=True, text=True, timeout=3,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             out = ps.stdout.lower()
             if "hwp.exe" in out:
@@ -161,7 +162,7 @@ class LiveController(HwpMixin, ExcelMixin, PptMixin, WordMixin):
                 if xl is None:
                     import subprocess, time
                     try:
-                        subprocess.Popen(["start", "excel"], shell=True)
+                        subprocess.Popen(["start", "excel"], shell=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                         for _ in range(10):
                             time.sleep(0.5)
                             try:
@@ -223,7 +224,7 @@ class LiveController(HwpMixin, ExcelMixin, PptMixin, WordMixin):
                 if ppt is None:
                     import subprocess, time
                     try:
-                        subprocess.Popen(["start", "powerpnt"], shell=True)
+                        subprocess.Popen(["start", "powerpnt"], shell=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                         for _ in range(10):
                             time.sleep(0.5)
                             try:
@@ -287,7 +288,7 @@ class LiveController(HwpMixin, ExcelMixin, PptMixin, WordMixin):
                     # subprocess로 실행 후 GetActiveObject (COM 참조 독립)
                     import subprocess, time
                     try:
-                        subprocess.Popen(["start", "winword"], shell=True)
+                        subprocess.Popen(["start", "winword"], shell=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                         for _ in range(10):
                             time.sleep(0.5)
                             try:

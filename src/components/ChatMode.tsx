@@ -4,6 +4,7 @@ import { useStore } from "../store";
 import { MessageBubble } from "./chat/MessageBubble";
 import { ActionReviewPanel } from "./chat/ActionReviewPanel";
 import { describeAction } from "./chat/describeAction";
+import { apiUrl } from "../apiBase";
 
 interface AppDoc {
   index: number;
@@ -51,7 +52,7 @@ export function ChatMode() {
 
   // 모델 목록 + 디자인 스킬 로드
   useEffect(() => {
-    fetch("/api/models").then(r => r.json()).then((list: any[]) => {
+    fetch(apiUrl("/api/models")).then(r => r.json()).then((list: any[]) => {
       if (Array.isArray(list) && list.length > 0) {
         setModels(list);
         // 엔진 설정(local_model)의 활성 모델을 기본 선택 — 하드코딩 OpenAI
@@ -64,7 +65,7 @@ export function ChatMode() {
         }
       }
     }).catch(() => {});
-    fetch("/api/design-skills").then(r => r.json()).then((list: any[]) => {
+    fetch(apiUrl("/api/design-skills")).then(r => r.json()).then((list: any[]) => {
       if (Array.isArray(list) && list.length > 0) setDesignSkills(list);
     }).catch(() => {});
   }, []);
@@ -90,7 +91,7 @@ export function ChatMode() {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch("/api/live/detect", { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(apiUrl("/api/live/detect"), { signal: AbortSignal.timeout(3000) });
         if (!res.ok) return;
         const data = await res.json();
         if (data.error) return;
@@ -147,7 +148,7 @@ export function ChatMode() {
     }
     setConnecting(true);
     try {
-      const res = await fetch(`/api/live/connect/${app}`, { method: "POST" });
+      const res = await fetch(apiUrl(`/api/live/connect/${app}`), { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -156,7 +157,7 @@ export function ChatMode() {
           setLiveMode(true);
           // 문서 목록 가져오기 (모든 앱)
           try {
-            const docsRes = await fetch(`/api/live/documents/${app}`);
+            const docsRes = await fetch(apiUrl(`/api/live/documents/${app}`));
             if (docsRes.ok) {
               const docsData = await docsRes.json();
               setAppDocuments((prev) => ({ ...prev, [app]: docsData.documents || [] }));
@@ -182,7 +183,7 @@ export function ChatMode() {
     if (selected.length === 0) { setPendingActions(null); return; }
     setSending(true);
     try {
-      const res = await fetch("/api/live/execute-batch", {
+      const res = await fetch(apiUrl("/api/live/execute-batch"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,9 +211,9 @@ export function ChatMode() {
     setDocDropdownOpen(false);
     try {
       if (app === "hwp") {
-        await fetch(`/api/hwp/switch/${docIndex}`, { method: "POST" });
+        await fetch(apiUrl(`/api/hwp/switch/${docIndex}`), { method: "POST" });
       } else {
-        await fetch(`/api/live/documents/${app}/activate`, {
+        await fetch(apiUrl(`/api/live/documents/${app}/activate`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ index: docIndex }),
@@ -226,7 +227,7 @@ export function ChatMode() {
     const form = new FormData();
     form.append("file", file);
     try {
-      const res = await fetch("/api/files/upload", { method: "POST", body: form });
+      const res = await fetch(apiUrl("/api/files/upload"), { method: "POST", body: form });
       if (res.ok) {
         const data = await res.json();
         setAttachedFiles((prev) => [...prev, { name: data.name, path: data.path }]);
@@ -286,7 +287,7 @@ export function ChatMode() {
 
       if (liveMode && liveApp) {
         // ── 라이브 문서 제어 모드 (LLM 토큰 스트리밍) ──
-        const resp = await fetch("/api/chat/live/stream", {
+        const resp = await fetch(apiUrl("/api/chat/live/stream"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -395,7 +396,7 @@ export function ChatMode() {
           const filePaths = filesToSend.map((f) => f.path).join("\n");
           message = `${text}\n\n첨부된 파일 경로:\n${filePaths}`;
         }
-        const resp = await fetch("/api/chat", {
+        const resp = await fetch(apiUrl("/api/chat"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message, history, model: selectedModel }),

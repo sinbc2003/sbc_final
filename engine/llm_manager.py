@@ -462,11 +462,13 @@ class LLMManager:
         return self._local_chat_completion(messages, max_tokens, temperature, json_schema)
 
     def _find_llama_server_bin(self) -> str:
-        """llama-server 실행 파일 — 설정값 우선, 없으면 알려진 경로 탐색."""
+        """llama-server 실행 파일 — 설정값 > 번들 리소스 > 알려진 개발 경로 > PATH."""
         configured = self._config.get("llama_server_bin")
         if configured and Path(configured).exists():
             return configured
+        from engine.paths import ROOT
         for candidate in [
+            str(ROOT / "llama" / "llama-server.exe"),  # 배포 번들(리소스 루트/llama)
             "C:/Users/sinbc/llama_cpp/llama-server.exe",
             "D:/models/llama_cpp/bin/llama-server.exe",
             "llama-server",
@@ -527,10 +529,32 @@ class LLMManager:
             cmd += ["--lora-scaled", f"{lora_path.name}:0.0"]
             lora_cwd = str(lora_path.parent)
 
-        self._local_process = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            cwd=lora_cwd,
-        )
+        # 기동 실패 진단을 위해 출력을 로그 파일로 남긴다(기존 DEVNULL은
+        # '30초 타임아웃' 외 아무 단서도 없었음). windowed 배포에서 검은
+        # 콘솔 창이 뜨지 않도록 CREATE_NO_WINDOW.
+        from engine.paths import DATA_DIR
+        log_f = subprocess.DEVNULL
+        try:
+            log_dir = DATA_DIR / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_f = open(log_dir / "llama-server.log", "ab")
+            log_f.write(f"\n=== start {cmd} ===\n".encode("utf-8", "replace"))
+        except OSError:
+            pass
+        try:
+            self._local_process = subprocess.Popen(
+                cmd, stdout=log_f, stderr=subprocess.STDOUT if log_f is not subprocess.DEVNULL else subprocess.DEVNULL,
+                cwd=lora_cwd,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except FileNotFoundError:
+            # WinError 2 원문에는 무엇을 못 찾았는지 없다 — 교사 PC 원격지원 불가 수준
+            raise RuntimeError(
+                f"llama-server 실행 파일을 찾을 수 없습니다: {cmd[0]} "
+                "(설정 llm.llama_server_bin 또는 번들 llama/ 폴더 확인)"
+            )
+        if log_f is not subprocess.DEVNULL:
+            log_f.close()  # 자식이 핸들 상속 — 부모 쪽은 닫아도 기록 지속
 
     def _generate_claude(
         self, prompt: str, max_tokens: int, temperature: float

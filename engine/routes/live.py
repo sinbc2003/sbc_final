@@ -17,9 +17,11 @@ async def live_detect():
     running = set()
     for exe, key in [("Hwp.exe", "hwp"), ("EXCEL.EXE", "excel"), ("POWERPNT.EXE", "ppt"), ("WINWORD.EXE", "word")]:
         try:
+            import subprocess as _sp
             proc = await asyncio.create_subprocess_exec(
                 "tasklist", "/FI", f"IMAGENAME eq {exe}", "/NH",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0),
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
             output = stdout.decode("utf-8", errors="ignore").lower()
@@ -138,7 +140,7 @@ async def live_actions():
 
 @router.get("/api/live/skill/{app_type}")
 async def live_skill(app_type: str):
-    skill_path = deps.ROOT / "engine" / "skills" / f"{app_type}.md"
+    skill_path = deps.SKILLS_DIR / f"{app_type}.md"
     if not skill_path.exists():
         raise HTTPException(404, f"스킬 없음: {app_type}")
     template = skill_path.read_text(encoding="utf-8")

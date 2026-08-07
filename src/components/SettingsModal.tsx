@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useState, useEffect, useCallback } from "react";
 import {
   X, Key, Brain, Database, Package, RefreshCw, Check,
@@ -64,7 +65,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/settings");
+        const res = await fetch(apiUrl("/api/settings"));
         if (res.ok) {
           setSettings(await res.json());
           setEngineOnline(true);
@@ -85,7 +86,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSaved(false);
     setError("");
     try {
-      const res = await fetch(`/api/settings/${section}`, {
+      const res = await fetch(apiUrl(`/api/settings/${section}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
@@ -419,7 +420,7 @@ function NodesTab({ settings, onSave }: { settings: Settings; onSave: (s: string
   const checkUpdates = async () => {
     setCheckStatus("checking");
     try {
-      const res = await fetch("/api/nodes/check-updates");
+      const res = await fetch(apiUrl("/api/nodes/check-updates"));
       if (res.ok) {
         const data = await res.json();
         setUpdateInfo(data);

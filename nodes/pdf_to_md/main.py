@@ -47,6 +47,7 @@ def _convert_with_kordoc(pdf_path: str, pages: str) -> str | None:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode == 0 and result.stdout.strip():
             import json
@@ -61,7 +62,7 @@ def _convert_with_kordoc(pdf_path: str, pages: str) -> str | None:
 
 def _convert_with_pymupdf(pdf_path: str, pages: str) -> str:
     """pymupdf(fitz)로 변환."""
-    import fitz  # pymupdf
+    import pymupdf as fitz  # fitz 별칭 — 패키지 이중수집(DLL 중복) 방지
 
     doc = fitz.open(pdf_path)
     total = len(doc)

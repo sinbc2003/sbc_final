@@ -1,3 +1,4 @@
+import { apiUrl } from "../apiBase";
 import { useState, useEffect, useCallback } from "react";
 import {
   X, Search, FolderOpen, Clock, Copy, Trash2, Tag, Star,
@@ -174,7 +175,7 @@ function HistoryRow({ rec }: { rec: HistoryRecord }) {
     if (!detail) {
       setLoading(true);
       try {
-        const res = await fetch(`/api/history/${rec.id}`);
+        const res = await fetch(apiUrl(`/api/history/${rec.id}`));
         const data = await res.json();
         setDetail(data);
       } catch {
@@ -305,7 +306,7 @@ export function WorkflowManager({ onClose }: { onClose: () => void }) {
     setLoading(true);
     try {
       const [wfRes, histRes, preRes] = await Promise.all([
-        fetch("/api/workflows"), fetch("/api/history"), fetch("/api/presets"),
+        fetch(apiUrl("/api/workflows")), fetch(apiUrl("/api/history")), fetch(apiUrl("/api/presets")),
       ]);
       setWorkflows(await wfRes.json());
       setHistory(await histRes.json());
@@ -318,7 +319,7 @@ export function WorkflowManager({ onClose }: { onClose: () => void }) {
 
   const handleOpen = async (wfId: string) => {
     try {
-      const res = await fetch(`/api/workflows/${wfId}`);
+      const res = await fetch(apiUrl(`/api/workflows/${wfId}`));
       const data = await res.json();
       loadWorkflowJSON(data);
       onClose();
@@ -326,18 +327,18 @@ export function WorkflowManager({ onClose }: { onClose: () => void }) {
   };
 
   const handleDuplicate = async (wfId: string) => {
-    await fetch(`/api/workflows/${wfId}/duplicate`, { method: "POST" });
+    await fetch(apiUrl(`/api/workflows/${wfId}/duplicate`), { method: "POST" });
     refresh();
   };
 
   const handleDelete = async (wfId: string) => {
     if (!confirm("삭제하시겠습니까?")) return;
-    await fetch(`/api/workflows/${wfId}`, { method: "DELETE" });
+    await fetch(apiUrl(`/api/workflows/${wfId}`), { method: "DELETE" });
     refresh();
   };
 
   const handleExport = async (wfId: string) => {
-    const res = await fetch(`/api/workflows/${wfId}`);
+    const res = await fetch(apiUrl(`/api/workflows/${wfId}`));
     const data = await res.json();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -349,7 +350,7 @@ export function WorkflowManager({ onClose }: { onClose: () => void }) {
   const handleRename = async (wfId: string) => {
     const name = prompt("새 이름:");
     if (!name) return;
-    await fetch(`/api/workflows/${wfId}/rename`, {
+    await fetch(apiUrl(`/api/workflows/${wfId}/rename`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),

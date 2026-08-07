@@ -75,7 +75,13 @@ def _load_execute_fn(node_dir: Path) -> Callable:
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        # 반쯤 초기화된 모듈이 캐시에 남으면 이후 import가 원인 불명
+        # AttributeError로 왜곡된다(표준 importlib 관례대로 제거 후 재raise).
+        sys.modules.pop(spec.name, None)
+        raise
 
     if not hasattr(module, "execute"):
         raise AttributeError(f"execute() 함수 없음: {main_py}")
