@@ -950,6 +950,7 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 **노드 type enum(레지스트리 실제 id) + 포트명 enum(출력 15·입력 12종)**. 일반 질문은 `워크플로우=null`로 규칙7 보존. provider=local이면 `generate_chat(json_schema=)` → llama-server GBNF 강제.
 **실측이 드러낸 2차 병목까지 잡음**: 노드 type은 맞히는데 ⓐ포트명을 영어로 지어내고(`text`/`input_text`) ⓑ타입이 어긋난 연결(텍스트 출력→파일 입력) ⓒ단일 노드 자기 연결을 만든다.
 → 포트명 enum + **`repair_workflow_ports()`**(타입 호환 (출력,입력) 조합이 **유일할 때만** 코드가 보정, 애매하면 손대지 않고 검증이 사유 보고 = 무음 오배선 방지) + `validate_workflow`에 **자기 연결·타입 불일치** 검사와 "가능: '텍스트','파일'" 안내 추가 + 시스템 프롬프트 규칙 13~15.
+**자기 연결은 제거로 전환(후속 실측)**: 프롬프트 규칙을 넣어도 1노드 요청에서 3회 중 1회꼴로 재발했고, 자기 연결은 **어떤 해석으로도 유효할 수 없어** repair가 통째로 버린다(나머지 워크플로우는 살림). 엑셀 1노드 요청 4회 연속 포함 **6/6 저장 성공**(이전 2/3). 가져오기 등 보정을 안 거친 경로를 위해 validate의 사유 메시지는 유지.
 부수: 모델 미지정 시 **openai 하드코딩 폴백 → `get_provider_info("auto")`**(M/S), 채팅 history 최근 12개 제한(L/S).
 
 **검증**: 오프라인 74 PASS/0 FAIL(신규 26검사: 취소 5·envelope 13·포트보정 8). **로컬 gemma E2B HTTP E2E 3/3** — PDF요약→hwpx, 엑셀→md, 워드번역→pdf 전부 노드·포트·타입 정확, 일반 질문은 워크플로우 없이 텍스트 답변. tsc 클린.

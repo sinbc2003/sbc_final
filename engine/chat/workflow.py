@@ -330,11 +330,23 @@ def repair_workflow_ports(data: dict, registry) -> list[str]:
     fixes: list[str] = []
     node_map = {n.get("id"): n for n in data.get("nodes", []) if n.get("id")}
 
+    # 자기 연결은 어떤 해석으로도 유효할 수 없다 → 통째로 버린다.
+    # (소형모델이 단일 노드 워크플로우에서 상습적으로 만든다. 예전엔 이것 하나로
+    #  워크플로우 전체가 저장 거부돼 '엑셀 읽기' 같은 1노드 요청이 실패했다.)
+    kept = []
+    for e in data.get("edges", []):
+        if (e.get("from") or e.get("source", "")) == (e.get("to") or e.get("target", "")):
+            fixes.append(f"'{e.get('from') or e.get('source', '')}'의 자기 연결을 제거")
+            continue
+        kept.append(e)
+    if len(kept) != len(data.get("edges", [])):
+        data["edges"] = kept
+
     for e in data.get("edges", []):
         src_id = e.get("from") or e.get("source", "")
         tgt_id = e.get("to") or e.get("target", "")
         if src_id == tgt_id:
-            continue  # 자기 연결은 보정 대상이 아니다 — validate가 사유를 알린다
+            continue
         src_node, tgt_node = node_map.get(src_id), node_map.get(tgt_id)
         if not src_node or not tgt_node:
             continue

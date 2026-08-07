@@ -433,12 +433,18 @@ def t_port_repair():
     check("파일 출력→텍스트 입력도 보정", bad["edges"][0]["from_port"] == "텍스트")
 
     # 실측 실패 3: 자기 자신 연결(단일 노드 워크플로우에서 소형모델 상습)
+    # → 어떤 해석으로도 유효할 수 없으므로 제거하고 나머지는 살린다
     loop = {"nodes": [{"id": "x1", "type": "xlsx_to_md", "params": {}}],
             "edges": [{"from": "x1", "from_port": "파일", "to": "x1", "to_port": "텍스트"}]}
-    repair_workflow_ports(loop, reg)
-    errs2 = validate_workflow(loop, reg)
-    check("자기 연결은 사유 명시", any("자기 자신" in e for e in errs2))
-    check("자기 연결은 보정하지 않음", loop["edges"][0]["to_port"] == "텍스트")
+    fx = repair_workflow_ports(loop, reg)
+    check("자기 연결 제거", loop["edges"] == [] and any("자기 연결" in f for f in fx))
+    check("제거 후 워크플로우는 유효", validate_workflow(loop, reg) == [])
+
+    # 보정을 거치지 않고 들어온 자기 연결은 검증이 사유를 명시한다(가져오기 등)
+    loop2 = {"nodes": [{"id": "x1", "type": "xlsx_to_md", "params": {}}],
+             "edges": [{"from": "x1", "from_port": "파일", "to": "x1", "to_port": "텍스트"}]}
+    check("검증은 자기 연결 사유 명시",
+          any("자기 자신" in e for e in validate_workflow(loop2, reg)))
 
     # 포트 오류 메시지에 가능한 포트명을 함께 안내
     e3 = validate_workflow({"nodes": [{"id": "s1", "type": "llm_summarize", "params": {}},
