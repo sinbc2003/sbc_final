@@ -139,6 +139,17 @@ def main() -> int:
         n_report += 1
     print(f"보고서·계획서 편입: {n_report}쌍")
 
+    # 전국 공문 시범 코퍼스 병합(§25 v3) — pilot_extract 산출물, 스키마 동일.
+    # 품질 검증 완료본(523쌍, PII 0·끝. 종결 처리)만 이 파일로 온다.
+    national_path = DATASET_DIR / "gongmun_national.jsonl"
+    n_national = 0
+    if national_path.exists():
+        for line in national_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                examples.append(json.loads(line))
+                n_national += 1
+        print(f"전국 공문 병합: {n_national}쌍")
+
     rng.shuffle(examples)
     n_val = max(1, len(examples) // 20)
     val, train = examples[:n_val], examples[n_val:]

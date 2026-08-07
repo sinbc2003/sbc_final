@@ -1051,6 +1051,15 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 **함정 기록**: ①빌드 전 engine.exe 종료 필수+출력 파이프가 exit code 가림 ②모든 스테이징 스크립트도 PYTHONUTF8=1로 ③엔진 재빌드 후 tauri build 다시 해야 리소스 갱신(구 EXE가 번들에 남아 "코드 고쳤는데 안 됨" 함정 — 시드 미동작으로 실제로 겪음) ④경로: llama-server 재사용 시 _local_process 미소유라 shutdown이 못 죽이는 설계(dev 웜서버용) — frozen에선 워치독+shutdown 이중이라 실측상 정리됨, 완전 보장이 필요하면 exe 경로 스윕 추가 여지.
 **성능 참고**: perMachine 설치(Program Files=ASCII)로 llama-server ANSI argv 문제 회피. 관리자 없는 학교 PC용 perUser는 -m에도 cwd 트릭 확장 후 검토.
 
+## 29. 작업 기록 — 2026-08-07 (LoRA 증류 v3 — §25 잔여 트랙 실행)
+
+> 사용자 "추천대로 진행" → §28 로드맵 ① LoRA v3부터. 이 섹션이 진행 원장.
+
+- **데이터셋 v3 완성**: make_dataset.py에 `gongmun_national.jsonl` 병합 로직 추가(§25 지시 그대로 — DATASET_DIR에 파일 있으면 편입 후 셔플·분할) → **1,557쌍(train 1,480/val 77, 평균 749자)**. 학습기 길이 스킵 69 제외 실투입 train 1,411.
+- **GPU 확보 실측 노하우**: SBC-LLM-Agent(스케줄러 태스크, 승격)의 llama-server가 **VRAM 6.83GB** 점유 — 승격 프로세스라 일반 셸 taskkill/schtasks 전부 액세스 거부. per-process VRAM은 `Get-Counter '\GPU Process Memory(*)\Dedicated Usage'`로 측정(nvidia-smi는 WDDM에서 [N/A]). 해법 = `schtasks /End`로 태스크 중단 후 **UAC 승격 taskkill(사용자 승인)**. 사용자 지침: "워커 올라가 있으면 VRAM 부족 시 내리면 됨".
+- **학습 기동(16:40)**: `train_lora.py --model D:\models\hf\gemma-4-E2B-it --out D:\lora_train\out\gongmun_g4e2b_v3 --max-len 2048 --batch 1 --grad-accum 16 --no-4bit --no-eval` (venv=D:\lora_train\venv, TMP/HF_HOME=D:, detached, 로그 D:\lora_train\g4e2b_v3.log/.err). ~265스텝, v1 19s/step 기준 ~90분 예상. save_steps=28.
+- 학습 후 순서(§25): convert_lora_to_gguf → `gongmun_g4e2b_v3.gguf` → A/B + **유형 혼선 검사(공문 5·계획서 5)** → 어댑터 off 벤치 회귀 → stage_bundle/default_settings v3 반영.
+
 ### ⏭️ 다음 트랙 (사용자 지시 2026-08-07: "inline AI 수준 + 로컬 파인튜닝으로 교사 태스크 완벽 동작")
 1. **LoRA 증류 v3**(1,557쌍 대기, §25 — RTX5080 본진, E4B checkpoint-84 재개 가능) — "특정 task 완벽 동작"의 직접 레버
 2. **승인 UX**(inline AI '편집 전 확인하기' — 라이브 편집 액션을 diff 미리보기→승인 후 실행으로. 현재는 즉시 실행)
