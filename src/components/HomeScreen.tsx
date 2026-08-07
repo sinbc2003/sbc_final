@@ -49,8 +49,10 @@ const CARD_COLORS = [
 
 export function HomeScreen() {
   const setMode = useStore((s) => s.setMode);
+  // 실행 화면은 store가 소유한다 — 홈 카드뿐 아니라 워크플로우 카드·실행
+  // 기록에서도 같은 화면을 열기 때문(Layout이 렌더).
+  const openRunner = useStore((s) => s.openRunner);
   const [presets, setPresets] = useState<PresetMeta[]>([]);
-  const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [showFormAssist, setShowFormAssist] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -68,11 +70,6 @@ export function HomeScreen() {
   /* FormAssist */
   if (showFormAssist) {
     return <FormAssist onBack={() => setShowFormAssist(false)} />;
-  }
-
-  /* TaskRunner */
-  if (activePresetId) {
-    return <TaskRunner presetId={activePresetId} onBack={() => setActivePresetId(null)} />;
   }
 
   return (
@@ -105,7 +102,7 @@ export function HomeScreen() {
               return (
                 <button
                   key={preset.id}
-                  onClick={() => preset.id === "preset_form_fill" ? setShowFormAssist(true) : setActivePresetId(preset.id)}
+                  onClick={() => preset.id === "preset_form_fill" ? setShowFormAssist(true) : openRunner(preset.id)}
                   className={`group bg-white rounded-xl border border-gray-200 p-5 text-left
                     ${color.hover} hover:shadow-md transition-all duration-150`}
                 >

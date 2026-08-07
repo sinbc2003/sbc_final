@@ -6,6 +6,10 @@ LLM 텍스트 생성 노드.
 """
 
 import re
+from datetime import date
+
+# LoRA 명시적 미사용 값 — 설정 기본 어댑터 자동 폴백을 끄고 베이스로 생성한다.
+_LORA_OFF = {"none", "off", "없음", "-"}
 
 # 청크 분할 임계치 (글자 수). 이보다 길면 자동 분할.
 CHUNK_THRESHOLD = 8000
@@ -66,6 +70,13 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     template = params.get("prompt_template", "{{입력텍스트}}")
     variables = dict(inputs)
     variables.update(params)
+    # 오늘 날짜를 템플릿 변수로 제공 — 소형모델은 학습 시점 연도(2024 등)를
+    # 가정해 공문·가정통신문의 날짜를 틀리게 쓴다. 프롬프트에 주입해야 맞는다.
+    # (params가 우선하므로 사용자가 덮어쓸 수 있다.)
+    _t = date.today()
+    for k, v in (("오늘", _t.isoformat()), ("올해", str(_t.year)),
+                 ("오늘한글", f"{_t.year}년 {_t.month}월 {_t.day}일")):
+        variables.setdefault(k, v)
     prompt = _render_template(template, variables)
 
     provider = params.get("provider", "auto")
@@ -74,11 +85,18 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     lora = params.get("lora") or None
     model = params.get("model") if params.get("model") else None
 
+    # 'none' 등은 어댑터 명시적 미사용 — 이 값이 없으면 설정 기본 어댑터
+    # (공문 LoRA)가 가정통신문·계획서 생성에도 끼어들어 문체가 공문으로 쏠린다.
+    lora_off = isinstance(lora, str) and lora.strip().lower() in _LORA_OFF
+
     # LoRA: 서버에 프리로드된 어댑터(settings.llm.local_lora, 기본 scale 0)를
     # 이 생성 요청만 scale 1.0으로 활성화(로컬 provider 한정 — llm_manager §5 배선).
     # 노드에 미지정이면 설정 기본 어댑터를 따름 — 채팅으로 만든 워크플로우도
     # "생성 = 어댑터 ON" UX가 되도록. (추출·분류 노드는 lora 미전달 = 베이스 그대로)
-    if not lora and provider in ("auto", "local"):
+    if lora_off:
+        lora = None
+        context["log"]("LoRA 미사용 지정 — 베이스 모델로 생성합니다")
+    elif not lora and provider in ("auto", "local"):
         cfg_lora = (getattr(llm, "_config", {}) or {}).get("local_lora")
         if cfg_lora:
             lora = cfg_lora

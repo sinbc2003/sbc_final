@@ -25,13 +25,13 @@ params:
     label: 프롬프트 템플릿
     type: text
     default: "다음 내용을 정리하여 작성하라.\n\n{{입력텍스트}}"
-    description: "{{변수명}}으로 입력 참조. 여러 줄 가능."
+    description: "{{변수명}}으로 입력 참조. 여러 줄 가능. {{오늘}}·{{올해}}·{{오늘한글}}은 실제 날짜로 자동 치환된다."
 
   - id: lora
     label: LoRA 어댑터
     type: string
     default: ""
-    description: "사용할 LoRA 어댑터 이름 (비워두면 베이스 모델)"
+    description: "사용할 LoRA 어댑터 이름. 비워두면 설정의 기본 어댑터를 따르고, 'none'을 넣으면 어댑터 없이 베이스 모델로 생성한다."
 
   - id: provider
     label: LLM 제공자

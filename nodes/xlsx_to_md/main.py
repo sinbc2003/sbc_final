@@ -107,18 +107,26 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     context["progress"](0.1)
     context["log"]("Excel/CSV 변환 시작")
 
-    # kordoc 먼저 시도
-    kordoc_result = _convert_with_kordoc(file_path)
-    if kordoc_result is not None:
-        context["progress"](1.0)
-        context["log"](f"변환 완료 ({len(kordoc_result)} 글자)")
-        return {"텍스트": kordoc_result, "표데이터": []}
+    # 텍스트는 kordoc(한글 문서 재현이 더 좋음) 우선. 단 시트를 지정했으면
+    # kordoc이 그 지시를 모르므로 pandas 결과를 쓴다.
+    kordoc_result = None if sheet else _convert_with_kordoc(file_path)
 
-    # fallback: pandas
-    context["log"]("kordoc 미설치, pandas로 변환")
-    text_result, table_data = _convert_with_fallback(file_path, sheet)
+    # 표데이터는 **항상 pandas로** 만든다. 예전엔 kordoc 성공 시 빈 리스트를
+    # 내보내, 표데이터를 쓰는 하류(column_mapping·save_xlsx)가 아무 오류 없이
+    # 빈 엑셀을 만들었다(무음 실패).
+    try:
+        text_result, table_data = _convert_with_fallback(file_path, sheet)
+    except Exception as e:
+        if kordoc_result is None:
+            raise
+        context["log"](f"[WARN] 표 데이터 추출 실패({e}) — 텍스트만 제공합니다")
+        text_result, table_data = kordoc_result, []
+    else:
+        if kordoc_result:
+            text_result = kordoc_result
 
     context["progress"](1.0)
-    context["log"](f"변환 완료 ({len(text_result)} 글자)")
+    rows = sum(t.get("rows", 0) for t in table_data)
+    context["log"](f"변환 완료 ({len(text_result)} 글자, 표 {len(table_data)}개 / {rows}행)")
 
     return {"텍스트": text_result, "표데이터": table_data}

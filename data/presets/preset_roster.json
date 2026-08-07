@@ -1,0 +1,70 @@
+{
+  "id": "preset_roster",
+  "name": "명단·성적 엑셀 정리",
+  "version": "1.0.0",
+  "description": "엑셀/CSV 명단을 읽어 컬럼명을 정리한 뒤 새 엑셀 파일로 저장합니다. 계산과 정리는 코드가 하므로 값이 바뀌지 않습니다.",
+  "nodes": [
+    {
+      "id": "roster_file",
+      "type": "file_input",
+      "params": { "path": "", "auto_convert": false },
+      "position": { "x": 100, "y": 200 }
+    },
+    {
+      "id": "read_xlsx",
+      "type": "xlsx_to_md",
+      "params": { "sheet": "" },
+      "position": { "x": 380, "y": 200 }
+    },
+    {
+      "id": "rename_cols",
+      "type": "column_mapping",
+      "params": { "mapping_rules": "" },
+      "position": { "x": 660, "y": 200 }
+    },
+    {
+      "id": "save",
+      "type": "save_xlsx",
+      "params": { "output_name": "정리된_명단" },
+      "position": { "x": 940, "y": 200 }
+    }
+  ],
+  "edges": [
+    { "from": "roster_file", "from_port": "파일", "to": "read_xlsx", "to_port": "파일" },
+    { "from": "read_xlsx", "from_port": "표데이터", "to": "rename_cols", "to_port": "표데이터" },
+    { "from": "rename_cols", "from_port": "표데이터", "to": "save", "to_port": "표데이터" }
+  ],
+  "user_inputs": [
+    {
+      "node_id": "roster_file",
+      "param": "path",
+      "label": "명단 엑셀 파일",
+      "kind": "file",
+      "accept": [".xlsx", ".xls", ".csv"]
+    },
+    {
+      "node_id": "rename_cols",
+      "param": "mapping_rules",
+      "label": "컬럼명 바꾸기",
+      "kind": "text",
+      "optional": true,
+      "placeholder": "바꿀 것이 없으면 비워두세요.\n예) 학번→학생번호, 국→국어, 수→수학"
+    },
+    {
+      "node_id": "save",
+      "param": "output_name",
+      "label": "저장할 파일 이름",
+      "kind": "text",
+      "optional": true,
+      "placeholder": "정리된_명단"
+    }
+  ],
+  "_meta": {
+    "id": "preset_roster",
+    "name": "명단·성적 엑셀 정리",
+    "description": "엑셀/CSV 명단을 읽어 컬럼명을 정리한 뒤 새 엑셀 파일로 저장합니다. 계산과 정리는 코드가 하므로 값이 바뀌지 않습니다.",
+    "tags": ["프리셋", "성적", "명단", "엑셀"],
+    "thumbnail_nodes": ["file_input", "xlsx_to_md", "column_mapping", "save_xlsx"],
+    "builtin": true
+  }
+}

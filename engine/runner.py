@@ -64,15 +64,21 @@ class Workflow:
             )
             for n in data.get("nodes", [])
         ]
-        edges = [
-            WorkflowEdge(
-                from_node=e["from"],
-                from_port=e["from_port"],
-                to_node=e["to"],
-                to_port=e["to_port"],
-            )
-            for e in data.get("edges", [])
-        ]
+        # 포트명이 빠진 엣지는 raw KeyError(→ HTTP 500 + 빈 메시지) 대신
+        # 빈 문자열로 두고, 필수 입력 사전 검증이 한국어로 사유를 알리게 한다.
+        # 노드 id는 구조상 없으면 안 되므로 여기서 명확히 실패시킨다.
+        edges = []
+        for e in data.get("edges", []):
+            from_node = e.get("from") or e.get("source")
+            to_node = e.get("to") or e.get("target")
+            if not from_node or not to_node:
+                raise ValueError(f"연결에 출발/도착 노드가 없습니다: {e}")
+            edges.append(WorkflowEdge(
+                from_node=from_node,
+                from_port=e.get("from_port") or e.get("sourceHandle") or "",
+                to_node=to_node,
+                to_port=e.get("to_port") or e.get("targetHandle") or "",
+            ))
         return cls(
             id=data.get("id", "unnamed"),
             name=data.get("name", ""),

@@ -1,0 +1,53 @@
+{
+  "id": "preset_newsletter",
+  "name": "가정통신문 만들기",
+  "version": "1.0.0",
+  "description": "행사·안내 내용을 적어 넣으면 가정통신문 형식으로 작성하여 한글 문서(HWPX)로 저장합니다.",
+  "nodes": [
+    {
+      "id": "info_input",
+      "type": "text_input",
+      "params": { "content": "" },
+      "position": { "x": 100, "y": 200 }
+    },
+    {
+      "id": "letter_gen",
+      "type": "llm_generate",
+      "params": {
+        "prompt_template": "너는 학교 가정통신문을 작성하는 교사다. 아래 [안내 내용]만 근거로 가정통신문을 작성하라.\n\n규칙:\n1. 오늘은 {{오늘한글}}이다. 연도를 임의로 가정하지 말고 날짜는 이 기준으로 쓴다.\n2. [안내 내용]에 없는 사실(일시·장소·금액·연락처 등)을 지어내지 마라. 빠진 항목은 아예 쓰지 않는다.\n3. 아래 마크다운 구조를 그대로 따른다.\n\n# (제목)\n\n학부모님께 드리는 안내 말씀 한 문단 (인사 + 취지)\n\n## 안내 사항\n\n| 구분 | 내용 |\n| --- | --- |\n| 행사명 |  |\n| 일시 |  |\n| 장소 |  |\n| 대상 |  |\n\n## 협조 및 유의 사항\n\n- (있으면 항목별로)\n\n마무리 인사 한 문장\n\n{{오늘한글}}\n\n(학교명) 장\n\n[안내 내용]\n{{입력텍스트}}",
+        "lora": "none",
+        "provider": "local",
+        "max_tokens": 900,
+        "temperature": 0.3
+      },
+      "position": { "x": 420, "y": 200 }
+    },
+    {
+      "id": "to_hwpx",
+      "type": "md_to_hwpx",
+      "params": { "output_name": "가정통신문" },
+      "position": { "x": 740, "y": 200 }
+    }
+  ],
+  "edges": [
+    { "from": "info_input", "from_port": "텍스트", "to": "letter_gen", "to_port": "입력텍스트" },
+    { "from": "letter_gen", "from_port": "출력텍스트", "to": "to_hwpx", "to_port": "텍스트" }
+  ],
+  "user_inputs": [
+    {
+      "node_id": "info_input",
+      "param": "content",
+      "label": "안내할 내용",
+      "kind": "text",
+      "placeholder": "학교명, 행사명, 일시, 장소, 대상, 준비물, 협조사항을 아는 대로 적어주세요.\n예)\n○○고등학교\n2학년 진로체험의 날\n2026년 9월 12일(토) 09:00~15:00\n국립과천과학관\n2학년 전체\n중식 개인 준비, 편한 복장"
+    }
+  ],
+  "_meta": {
+    "id": "preset_newsletter",
+    "name": "가정통신문 만들기",
+    "description": "행사·안내 내용을 적어 넣으면 가정통신문 형식으로 작성하여 한글 문서(HWPX)로 저장합니다.",
+    "tags": ["프리셋", "가정통신문", "생성", "HWPX"],
+    "thumbnail_nodes": ["text_input", "llm_generate", "md_to_hwpx"],
+    "builtin": true
+  }
+}

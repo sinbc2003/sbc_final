@@ -23,6 +23,10 @@ interface UserInput {
   accept?: string[];
   value: string;
   placeholder?: string;
+  /** 값을 넣을 파라미터 이름. 없으면 file→path, text→content (기존 동작) */
+  param?: string;
+  /** 비워둬도 실행 가능한 입력(선택 항목) */
+  optional?: boolean;
 }
 
 type RunStatus = "idle" | "running" | "done" | "error" | "cancelled";
@@ -43,14 +47,18 @@ function extractUserInputs(preset: PresetFull): UserInput[] {
       const node = preset.nodes.find((n) => n.id === u.node_id);
       const kind: "file" | "text" =
         u.kind || (node?.type === "file_input" ? "file" : "text");
+      const param: string = u.param || (kind === "file" ? "path" : "content");
       return {
         nodeId: u.node_id,
         nodeType: node?.type || "text_input",
         label: u.label || (kind === "file" ? "파일 입력" : "텍스트 입력"),
         kind,
-        value: kind === "text" ? (node?.params?.content || "") : "",
+        // 선언된 파라미터의 현재 값을 초깃값으로 (기본은 content)
+        value: kind === "text" ? (node?.params?.[param] || "") : "",
         placeholder: u.placeholder,
-      };
+        param,
+        optional: u.optional === true,
+      } as UserInput;
     });
   }
   const inputs: UserInput[] = [];
@@ -169,7 +177,7 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
   const canRun =
     preset &&
     status !== "running" &&
-    userInputs.every((inp) => inp.kind === "text" || inp.value);
+    userInputs.every((inp) => inp.kind === "text" || inp.optional || inp.value);
 
   /* ── 실행 ── */
   const runTask = useCallback(async () => {
@@ -185,8 +193,13 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
     for (const inp of userInputs) {
       const node = wf.nodes.find((n: any) => n.id === inp.nodeId);
       if (!node) continue;
-      if (inp.kind === "file") node.params.path = inp.value;
-      if (inp.kind === "text") node.params.content = inp.value;
+      // 선택 항목을 비워두면 프리셋의 기본값을 그대로 쓴다
+      // (빈 문자열을 넣으면 파일명이 ".xlsx"가 되는 식으로 망가진다).
+      if (inp.optional && !inp.value.trim()) continue;
+      // 프리셋이 선언한 파라미터에 넣는다. 예전엔 무조건 path/content여서
+      // '매핑 규칙' 같은 노드 파라미터는 화면에서 받을 방법이 없었다.
+      const target = inp.param || (inp.kind === "file" ? "path" : "content");
+      node.params[target] = inp.value;
     }
 
     // 워크플로우 메타 추가
@@ -340,6 +353,9 @@ export function TaskRunner({ presetId, onBack }: { presetId: string; onBack: () 
             <div key={inp.nodeId} className="bg-white rounded-xl border border-gray-200 p-5">
               <label className="block text-[13px] font-semibold text-gray-700 mb-3">
                 {inp.label}
+                {inp.optional && (
+                  <span className="ml-1.5 text-[11px] font-normal text-gray-400">(선택)</span>
+                )}
               </label>
 
               {inp.kind === "file" ? (

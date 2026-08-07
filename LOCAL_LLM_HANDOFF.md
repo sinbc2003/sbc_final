@@ -934,8 +934,9 @@ benchmark에 `--gguf`(모델 지목)+결과에 {gguf,quant,size,elapsed} 스탬�
 - [✅] **워크플로우 생성 GBNF 강제** (`chat/workflow.py`) — §26이 지목한 "신뢰성 최대 병목"
 - [✅] **Ctrl+Z 실행취소/다시실행** (`store.ts`·FlowCanvas·Toolbar)
 - [✅] **연결 실패 사유 피드백** (`connectionCheck.ts`·`Toast.tsx`)
-- [ ] 저장 워크플로우 카드 실행 버튼
-- [ ] 고빈도 업무 프리셋 3종(가통문·계획서·명단)
+- [✅] **저장 워크플로우 카드 실행 버튼** (`store.runnerWorkflowId`·Layout·WorkflowManagerPage)
+- [✅] **고빈도 업무 프리셋 3종**(가통문·계획서·명단)
+**→ §26 H/M 6건 전부 완료. 다음은 M/S → M/M → L/S (아래 「다음 세션」).**
 
 ### ① 실행 취소 (협조적 취소)
 `PipelineRunner(cancel_event=threading.Event())` + 노드 경계 체크 → `ExecutionResult.cancelled`.
@@ -962,6 +963,29 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 겸사: **입력 포트 다중 연결(M/S)** — 예전엔 여러 개가 붙고 실행 시 마지막 값이 조용히 덮어썼다 → 기존 연결을 교체하고 이유를 안내.
 
 **검증(브라우저 실측, vite :1420 + 엔진 :8407)**: 노드 추가 2회 → Ctrl+Z 2회 → Ctrl+Shift+Z 2회 = 2→1→0→1→2 정확. `checkConnection` 실모듈 동적 import로 6케이스(타입불일치·정상·자기자신·역방향드래그·출력끼리·확장자불일치/미선언/any) 전부 기대대로. 입력 포트 재연결 = 엣지 1개 유지 + 소스 교체 + 안내 토스트, undo로 이전 연결 복원. tsc 클린.
+
+### ⑤ 저장 워크플로우 바로 실행
+실행 화면(TaskRunner) 소유권을 HomeScreen 지역 상태 → **store(`runnerWorkflowId`/`openRunner`/`closeRunner`)** 로 올리고 **Layout이 모드보다 우선 렌더**. 그래서 홈 카드·워크플로우 카드·실행 기록 어디서 열어도 같은 화면이고, 닫으면 보던 모드로 돌아온다(관리에서 열면 관리로).
+`WorkflowManagerPage` 카드 호버에 **실행(Play)** 버튼(썸네일 우상단), 실행 기록 행에 **다시 실행**. `storage.load_workflow`가 워크플로우→프리셋 순으로 찾으므로 일반 워크플로우 id도 그대로 실행된다.
+
+### ⑥ 고빈도 업무 프리셋 3종 (+ 그 과정에서 드러난 결함 2건 수정)
+- `preset_newsletter` 가정통신문(text_input→llm_generate→md_to_hwpx)
+- `preset_plan_doc` 행사·수업 계획서(→ md_to_docx + md_to_hwpx **동시 출력**)
+- `preset_roster` 명단·성적 엑셀 정리(file_input→xlsx_to_md→column_mapping→save_xlsx, **LLM 없이 코드만** — 성적 값이 바뀌지 않는다)
+
+**막고 있던 결함 2건**:
+1. **`xlsx_to_md`가 kordoc 경로에서 `표데이터: []`를 반환** → column_mapping·save_xlsx가 오류 없이 **빈 엑셀**을 만들던 무음 실패. 표데이터는 **항상 pandas로** 만들고 텍스트만 kordoc 우선(시트 지정 시엔 pandas)으로 수정. 로그에 표 개수·행수 표기.
+2. **`llm_generate`에 어댑터 opt-out이 없었다** — `params.lora`가 비면 설정 기본 어댑터(공문 LoRA)가 자동 적용돼 가정통신문·계획서 문체가 공문으로 쏠린다. `lora: "none"`(off/없음/-) 지원 추가.
+   같이: **`{{오늘}}·{{올해}}·{{오늘한글}}` 템플릿 변수 자동 주입** — 소형모델이 학습 시점 연도를 가정해 날짜를 틀리던 문제(§13 기록)를 프리셋 프롬프트에서 해결.
+- `TaskRunner`가 **`user_inputs[].param`을 실제로 사용**하도록 수정(예전엔 무조건 path/content라 '매핑 규칙' 같은 노드 파라미터를 화면에서 받을 수 없었다) + `optional: true` 지원(비우면 프리셋 기본값 유지, 라벨에 "(선택)").
+
+**검증**: 오프라인 **91 PASS/0 FAIL**(프리셋 무결성 검사 신설 — 5종 연결·포트·타입 + user_inputs 대상 노드/파라미터 실재). 프리셋 3종 E2E(PipelineRunner 직접 호출, 자동 열기 부작용 회피): 가정통신문 = 오늘 날짜 정확·없는 사실 미생성·HWPX 8.9KB / 계획서 = DOCX 37KB + HWPX 9.5KB / 명단 = 국→국어·수→수학 반영, 값 무변경. 취소 E2E(HTTP): run_id 발급 → cancel → `cancelled=True`, 레지스트리 정리, 미취소 실행은 정상 성공. 공문 프리셋 회귀 통과(LoRA 적용 유지).
+**관찰(미적용)**: 공문 프롬프트에 날짜 힌트를 넣으면 연도는 2026으로 맞지만 1회 샘플에서 반복 문구가 늘었다 → 검증된 프리셋이라 **변경하지 않음**. LoRA 기관명 편향·관련 번호 후처리는 §25 기록대로 유지.
+
+### ⏭️ 다음 세션 (§26 잔여)
+**M/S**: 스트림 출력 1000자 무음 절단(`execution.py`) · TaskRunner node_progress 미사용(단계 진행률) · JSON 파싱 실패 원문 노출 · 우클릭 노드추가 좌표 미변환(`ContextMenu.tsx:129`)
+**M/M**: 실행 이력 재사용/node_timings 형식 · FormAssist 채팅 로직 2곳 중복(`routes/chat.py:61`) · defaultNodes 드리프트(yaml 생성기) · llm_generate LoRA 자유텍스트(어댑터 목록 API)
+※ 이번에 함께 해소된 항목: **입력 포트 다중 연결**(M/S) · **모델 미지정 openai 하드코딩 폴백**(M/S) · **from_port 누락 KeyError→HTTP 500**(M/S, `Workflow.from_json`을 관대하게 + 노드 id 없으면 명확한 ValueError) · **채팅 history 무제한 누적**(L/S).
 
 ---
 

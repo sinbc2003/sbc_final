@@ -1,0 +1,60 @@
+{
+  "id": "preset_plan_doc",
+  "name": "행사·수업 계획서 만들기",
+  "version": "1.0.0",
+  "description": "행사나 수업의 개요를 적어 넣으면 계획서 형식으로 작성하여 워드(DOCX)와 한글(HWPX) 두 가지로 저장합니다.",
+  "nodes": [
+    {
+      "id": "outline_input",
+      "type": "text_input",
+      "params": { "content": "" },
+      "position": { "x": 100, "y": 240 }
+    },
+    {
+      "id": "plan_gen",
+      "type": "llm_generate",
+      "params": {
+        "prompt_template": "너는 학교 계획서를 작성하는 교사다. 아래 [개요]만 근거로 계획서를 작성하라.\n\n규칙:\n1. 오늘은 {{오늘한글}}이다. 연도를 임의로 가정하지 말고 날짜는 이 기준으로 쓴다.\n2. [개요]에 없는 사실(예산액·인원수·장소 등)을 지어내지 마라. 빠진 항목은 아예 쓰지 않는다.\n3. 아래 마크다운 구조를 그대로 따른다.\n\n# (계획서 제목)\n\n## 1. 목적\n\n- (2~3개 항목)\n\n## 2. 개요\n\n| 구분 | 내용 |\n| --- | --- |\n| 일시 |  |\n| 장소 |  |\n| 대상 |  |\n| 담당 |  |\n\n## 3. 세부 추진 계획\n\n| 순서 | 시간 | 내용 | 비고 |\n| --- | --- | --- | --- |\n\n## 4. 기대 효과\n\n- (2~3개 항목)\n\n## 5. 행정 사항\n\n- (있으면 항목별로)\n\n[개요]\n{{입력텍스트}}",
+        "lora": "none",
+        "provider": "local",
+        "max_tokens": 1200,
+        "temperature": 0.3
+      },
+      "position": { "x": 420, "y": 240 }
+    },
+    {
+      "id": "to_docx",
+      "type": "md_to_docx",
+      "params": { "output_name": "계획서" },
+      "position": { "x": 740, "y": 140 }
+    },
+    {
+      "id": "to_hwpx",
+      "type": "md_to_hwpx",
+      "params": { "output_name": "계획서" },
+      "position": { "x": 740, "y": 340 }
+    }
+  ],
+  "edges": [
+    { "from": "outline_input", "from_port": "텍스트", "to": "plan_gen", "to_port": "입력텍스트" },
+    { "from": "plan_gen", "from_port": "출력텍스트", "to": "to_docx", "to_port": "텍스트" },
+    { "from": "plan_gen", "from_port": "출력텍스트", "to": "to_hwpx", "to_port": "텍스트" }
+  ],
+  "user_inputs": [
+    {
+      "node_id": "outline_input",
+      "param": "content",
+      "label": "계획 개요",
+      "kind": "text",
+      "placeholder": "행사·수업명, 목적, 일시, 장소, 대상, 담당, 진행 순서를 아는 대로 적어주세요.\n예)\n2026학년도 수학 체험 부스 운영\n목적: 수학적 사고력 신장, 학생 주도 활동 경험\n일시: 2026년 10월 15일(목) 13:00~16:00\n장소: 본교 체육관\n대상: 1~2학년 희망자\n담당: 수학과\n순서: 개회 - 부스 운영 - 정리 및 소감 나눔"
+    }
+  ],
+  "_meta": {
+    "id": "preset_plan_doc",
+    "name": "행사·수업 계획서 만들기",
+    "description": "행사나 수업의 개요를 적어 넣으면 계획서 형식으로 작성하여 워드(DOCX)와 한글(HWPX) 두 가지로 저장합니다.",
+    "tags": ["프리셋", "계획서", "생성", "DOCX", "HWPX"],
+    "thumbnail_nodes": ["text_input", "llm_generate", "md_to_docx", "md_to_hwpx"],
+    "builtin": true
+  }
+}

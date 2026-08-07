@@ -295,6 +295,21 @@ def t_cancel():
           seen_ctx.get("is_cancelled") is True
           and seen_ctx.get("before") is False and seen_ctx.get("after") is True)
 
+    # 포트명 누락 엣지: raw KeyError(HTTP 500·빈 메시지) 대신 한국어 안내
+    wf_noport = Workflow.from_json({
+        "id": "t", "name": "t",
+        "nodes": [{"id": "n1", "type": "step2"}, {"id": "n2", "type": "step2"}],
+        "edges": [{"from": "n1", "to": "n2"}],  # from_port/to_port 없음
+    })
+    check("포트명 누락 엣지도 로드됨(KeyError 없음)",
+          wf_noport.edges[0].from_port == "" and wf_noport.edges[0].to_port == "")
+    try:
+        Workflow.from_json({"id": "t", "name": "t", "nodes": [],
+                            "edges": [{"from_port": "텍스트"}]})
+        check("노드 id 없는 엣지는 명확히 실패", False)
+    except ValueError as e:
+        check("노드 id 없는 엣지는 명확히 실패", "출발/도착" in str(e))
+
     # 취소하지 않으면 전부 실행된다 (회귀 방어)
     ran.clear()
     runner2 = PipelineRunner(registry=reg, config={"output_dir": "___없는경로___"},
@@ -433,9 +448,41 @@ def t_port_repair():
     check("오류에 가능한 포트 안내", any("가능:" in e and "출력" in e for e in e3))
 
 
+# ── 12. 프리셋 무결성 (홈 카드가 곧바로 실행 가능한가) ──
+def t_presets():
+    print("[presets]")
+    import json as _j
+    from pathlib import Path as _P
+    from engine.loader import NodeRegistry
+    from engine.chat.workflow import validate_workflow
+
+    reg = NodeRegistry()
+    reg.load_all(_P(ROOT) / "nodes")
+    files = sorted((_P(ROOT) / "data" / "presets").glob("*.json"))
+    check(f"프리셋 {len(files)}종 존재", len(files) >= 5)
+
+    for f in files:
+        d = _j.loads(f.read_text(encoding="utf-8"))
+        check(f"{f.stem}: 연결·포트·타입 유효", validate_workflow(d, reg) == [])
+        check(f"{f.stem}: _meta 이름·태그", bool(d.get("_meta", {}).get("name"))
+              and bool(d.get("_meta", {}).get("tags")))
+        node_map = {n["id"]: n for n in d["nodes"]}
+        for u in d.get("user_inputs", []):
+            node = node_map.get(u.get("node_id"))
+            ok_node = node is not None
+            # 선언한 param이 그 노드 타입에 실제로 있는 파라미터인가
+            ok_param = True
+            if ok_node and u.get("param"):
+                nd = reg.get(node["type"])
+                ok_param = nd is not None and u["param"] in {p["id"] for p in nd.params}
+            check(f"{f.stem}: 입력 '{u.get('label')}' 대상 노드·파라미터 실재",
+                  ok_node and ok_param)
+
+
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
-               t_grid_roundtrip, t_verify_retry, t_chunking, t_cancel, t_workflow_envelope, t_port_repair):
+               t_grid_roundtrip, t_verify_retry, t_chunking, t_cancel, t_workflow_envelope,
+               t_port_repair, t_presets):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

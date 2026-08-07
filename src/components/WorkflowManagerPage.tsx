@@ -53,6 +53,7 @@ export function WorkflowManagerPage() {
   const setMode = useStore((s) => s.setMode);
   const loadWorkflowJSON = useStore((s) => s.loadWorkflowJSON);
   const newWorkflow = useStore((s) => s.newWorkflow);
+  const openRunner = useStore((s) => s.openRunner);
 
   const [tab, setTab] = useState<Tab>("workflows");
   const [search, setSearch] = useState("");
@@ -201,6 +202,16 @@ export function WorkflowManagerPage() {
                 {rec.errors.length > 0 && (
                   <span className="text-[10px] text-red-500 bg-red-50 px-2 py-0.5 rounded">{rec.errors.length}개 오류</span>
                 )}
+                {rec.workflow_id && rec.workflow_id !== "unnamed" && (
+                  <button
+                    onClick={() => openRunner(rec.workflow_id)}
+                    title="같은 워크플로우를 다시 실행"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50
+                      text-[11px] text-emerald-700 font-medium hover:bg-emerald-100 transition-colors"
+                  >
+                    <Play size={11} /> 다시 실행
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -215,6 +226,7 @@ export function WorkflowManagerPage() {
               <WorkflowCard key={wf.id} wf={wf}
                 isPreset={(wf as any).isPreset}
                 onOpen={() => handleOpen(wf.id)}
+                onRun={() => openRunner(wf.id)}
                 onDelete={() => handleDelete(wf.id, wf.name)}
                 onDuplicate={() => handleDuplicate(wf.id)} />
             ))}
@@ -226,8 +238,9 @@ export function WorkflowManagerPage() {
 }
 
 /* ── 워크플로우 카드 ──────────────────────────────── */
-function WorkflowCard({ wf, onOpen, onDelete, onDuplicate, isPreset }: {
-  wf: WorkflowMeta; onOpen: () => void; onDelete: () => void; onDuplicate: () => void; isPreset?: boolean;
+function WorkflowCard({ wf, onOpen, onRun, onDelete, onDuplicate, isPreset }: {
+  wf: WorkflowMeta; onOpen: () => void; onRun: () => void;
+  onDelete: () => void; onDuplicate: () => void; isPreset?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const td = wf.thumbnail_data;
@@ -238,8 +251,9 @@ function WorkflowCard({ wf, onOpen, onDelete, onDuplicate, isPreset }: {
       className="bg-white rounded-xl border border-gray-200 hover:border-amber-300 hover:shadow-md
         transition-all cursor-pointer group overflow-hidden"
     >
-      {/* 미니 플로우차트 */}
-      <div className="bg-gray-50 border-b border-gray-100 flex items-center justify-center py-3 px-4">
+      {/* 미니 플로우차트 + 실행 버튼(호버) — '지난주 그 작업 다시 실행'이
+          설계 캔버스를 거치지 않고 바로 되게 한다. */}
+      <div className="relative bg-gray-50 border-b border-gray-100 flex items-center justify-center py-3 px-4">
         {td && td.nodes.length > 0 ? (
           <MiniFlowChart
             nodes={td.nodes.map((n) => ({ id: n.id, type: n.type, x: n.x, y: n.y }))}
@@ -256,6 +270,15 @@ function WorkflowCard({ wf, onOpen, onDelete, onDuplicate, isPreset }: {
             )}
           </div>
         )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onRun(); }}
+          title="실행 (설계 화면을 거치지 않습니다)"
+          className="absolute right-2 top-2 flex items-center gap-1 px-2.5 py-1 rounded-lg
+            bg-emerald-500 text-white text-[11px] font-semibold shadow-sm
+            opacity-0 group-hover:opacity-100 hover:bg-emerald-600 transition-all"
+        >
+          <Play size={11} fill="currentColor" /> 실행
+        </button>
       </div>
 
       {/* 정보 */}

@@ -150,6 +150,11 @@ export interface AppState {
   updateChatMessage: (id: string, updates: Partial<ChatMessage>) => void;
   clearChat: () => void;
 
+  // 실행 화면(TaskRunner) — 홈 카드·워크플로우 카드·실행 기록 어디서든 연다
+  runnerWorkflowId: string | null;
+  openRunner: (workflowId: string) => void;
+  closeRunner: () => void;
+
   // 토스트 (연결 실패 사유 등 짧은 피드백)
   toast: { id: number; message: string; kind: "info" | "warn" | "error" } | null;
   showToast: (message: string, kind?: "info" | "warn" | "error") => void;
@@ -701,6 +706,11 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     })),
   clearChat: () => set({ chatMessages: [] }),
+
+  /* ── 실행 화면 ──────────────────────── */
+  runnerWorkflowId: null,
+  openRunner: (workflowId) => set({ runnerWorkflowId: workflowId }),
+  closeRunner: () => set({ runnerWorkflowId: null }),
 
   /* ── 토스트 ─────────────────────────── */
   toast: null,
