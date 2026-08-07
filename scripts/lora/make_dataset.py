@@ -202,6 +202,43 @@ def main() -> int:
     examples.extend(aug)
     print(f"v4: placeholder화 전체 / 붙임회피 드롭 {drops['v4:붙임회피']} / 축약증강 {len(aug)}쌍")
 
+    # ── v5: 개요→완성문 instruction (§30 역생성) ─────────────────
+    # v4까지는 '제목→완성문 창작'이라 개요 준수를 배운 적이 없어 어댑터가
+    # 사실 순응을 훼손했다(실측). abstractify.py가 역추출한 개요를
+    # instruction으로 삼아 서식+사실 순응을 동시에 학습시킨다.
+    # 혼합: 개요 70% / 제목 30% (축약 증강은 별도 유지 — 짧은 요청 대응력).
+    outline_templates = [
+        "다음 개요로 학교 공문(기안문)을 작성하라.\n\n[개요]\n{o}",
+        ("아래 개요의 사실만 사용하여 공문 본문을 개조식으로 작성하라. "
+         "개요에 없는 조건·일정·숫자를 지어내지 마라.\n\n[개요]\n{o}"),
+        "학교 행정 문서 작성: 다음 개요를 기안문 서식으로 작성하라.\n\n[개요]\n{o}",
+    ]
+    abstracts_path = DATASET_DIR / "abstracts.jsonl"
+    if abstracts_path.exists():
+        abstracts = {}
+        for line in abstracts_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                d = json.loads(line)
+                abstracts[d["key"]] = d["개요"]
+
+        def _key(e: dict) -> str:
+            m = e.get("meta", {})
+            return str(m.get("reg") or f"idx{m.get('idx')}_{m.get('kind','')}")
+
+        n_outline = 0
+        for e in examples:
+            m = e.get("meta", {})
+            if m.get("aug") or m.get("type") == "report":
+                continue
+            items = abstracts.get(_key(e))
+            if not items or rng.random() >= 0.7:
+                continue
+            o = "\n".join("- " + s for s in items)
+            e["prompt"] = rng.choice(outline_templates).format(o=o)
+            e["meta"] = {**m, "instr": "outline"}
+            n_outline += 1
+        print(f"v5: 개요 instruction 전환 {n_outline}쌍 (역추출 {len(abstracts)}건)")
+
     # 4) 계획서·보고서 업웨이트 ×2 — 공문 비중 재확대에 따른 유형 혼선 완화
     reports = [e for e in examples if e.get("meta", {}).get("type") == "report"
                and not e.get("meta", {}).get("aug")]
