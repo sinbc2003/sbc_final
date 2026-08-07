@@ -137,6 +137,54 @@ function ModelSelector({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
+/* ── LoRA 선택 ────────────────────────────────────
+   자유 텍스트라 오타 시 조용히 베이스로 실행되던 필드. 현재 배선은 서버가
+   프리로드한 어댑터 1개를 켜고 끄는 방식이라, 선택지를 '기본 / 사용 안 함'으로
+   두고 실제로 적용되는 어댑터가 무엇인지 함께 보여준다. */
+interface LoraInfo { name: string; file: string; size_mb: number; active: boolean }
+
+function LoraSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [loras, setLoras] = useState<LoraInfo[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/loras").then(r => r.ok ? r.json() : []).then((d: LoraInfo[]) => {
+      setLoras(Array.isArray(d) ? d : []);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+
+  const base = "w-full text-[12px] rounded bg-gray-50 border border-gray-200 text-gray-700 " +
+    "focus:outline-none focus:border-tf-accent focus:ring-1 focus:ring-tf-accent/30 transition-all";
+  const active = loras.find(l => l.active);
+  const isOff = ["none", "off", "없음", "-"].includes((value ?? "").trim().toLowerCase());
+  // 설정 기본/사용안함 외의 값(기존 워크플로우)은 선택지로 남겨 조용히 바뀌지 않게 한다
+  const custom = value && !isOff ? value : "";
+
+  return (
+    <div className="space-y-1.5">
+      <select value={isOff ? "none" : custom ? custom : ""}
+        onChange={(e) => onChange(e.target.value)} className={`${base} px-2 py-1.5`}>
+        <option value="">설정의 기본 어댑터 사용</option>
+        <option value="none">사용 안 함 (베이스 모델)</option>
+        {custom && <option value={custom}>{custom} (직접 지정)</option>}
+      </select>
+      {loaded && (
+        active
+          ? <p className="text-[10px] text-gray-400">
+              현재 적용 어댑터: <span className="text-gray-600">{active.name}</span>
+              {active.size_mb ? ` (${active.size_mb}MB)` : ""}
+            </p>
+          : loras.length > 0
+            ? <p className="text-[10px] text-amber-500">
+                설치된 어댑터 {loras.length}개 — 설정에서 기본 어댑터를 지정해야 적용됩니다
+              </p>
+            : <p className="text-[10px] text-gray-400">설치된 LoRA 어댑터 없음 — 베이스 모델로 실행</p>
+      )}
+    </div>
+  );
+}
+
 /* ── 파라미터 필드 ────────────────────────────────── */
 
 function ParamField({ def, value, onChange, isFileNode, fileAccept, isLlmNode }: {
@@ -155,6 +203,11 @@ function ParamField({ def, value, onChange, isFileNode, fileAccept, isLlmNode }:
   // LLM 노드의 provider 파라미터 → 모델 선택기
   if (isLlmNode && def.id === "provider") {
     return <ModelSelector value={value ?? "auto"} onChange={onChange} />;
+  }
+
+  // LLM 노드의 lora 파라미터 → 어댑터 선택기 (자유 텍스트 오타 방지)
+  if (isLlmNode && def.id === "lora") {
+    return <LoraSelector value={value ?? ""} onChange={onChange} />;
   }
 
   if (def.type === "select" && def.options) {

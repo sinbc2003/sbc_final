@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from engine import deps
 from engine.runner import PipelineRunner, Workflow
-from engine.storage import ExecutionRecord
+from engine.storage import ExecutionRecord, timings_to_list
 
 router = APIRouter()
 
@@ -88,6 +88,25 @@ def _pack_outputs(result) -> tuple[dict, bool]:
     return packed, truncated
 
 
+def _node_name_map(req: "RunRequest") -> dict[str, str]:
+    """node_id → 사람이 읽는 노드 이름 (이력 표시용)."""
+    names = {}
+    for n in req.nodes:
+        nd = deps.registry.get(n.get("type", ""))
+        names[n.get("id", "")] = nd.name if nd else n.get("type", "")
+    return names
+
+
+def _snapshot(req: "RunRequest", wf_data: dict) -> dict:
+    """이력에서 그대로 다시 실행할 수 있는 최소 스냅샷."""
+    return {
+        "id": req.id, "name": req.name, "version": req.version,
+        "description": req.description,
+        "nodes": wf_data["nodes"], "edges": wf_data["edges"],
+        "user_inputs": req.user_inputs, "initial_inputs": req.initial_inputs or {},
+    }
+
+
 def _collect_output_files(result) -> list[dict]:
     """실행 결과 중 실제 파일 경로인 출력만 추려 메타 반환 (양 경로 공용)."""
     files = []
@@ -138,16 +157,20 @@ async def run_workflow(req: RunRequest):
         # 동기 runner.run을 스레드로 — 이벤트 루프 블로킹 방지(실행 중 서버 정지 해소).
         result = await asyncio.to_thread(runner.run, workflow, req.initial_inputs or None)
 
+        output_files = _collect_output_files(result)
+        packed, truncated = _pack_outputs(result)
         record = ExecutionRecord(
             id=f"run_{int(time.time())}_{uuid.uuid4().hex[:4]}",
             workflow_id=req.id or "unnamed", workflow_name=req.name or "이름 없음",
             started_at=started, finished_at=datetime.now().isoformat(timespec="seconds"),
             success=result.success, elapsed_seconds=round(result.elapsed_seconds, 2),
-            errors=result.errors, node_timings=result.node_timings,
+            errors=result.errors,
+            node_timings=timings_to_list(result.node_timings, _node_name_map(req)),
+            cancelled=result.cancelled,
+            outputs=packed, output_files=output_files,
+            workflow_snapshot=_snapshot(req, wf_data),
         )
         deps.store.add_history(record)
-
-        output_files = _collect_output_files(result)
 
         if result.success and output_files:
             import os, platform as _pf
@@ -160,7 +183,6 @@ async def run_workflow(req: RunRequest):
                 except Exception:
                     pass
 
-        packed, truncated = _pack_outputs(result)
         return {
             "success": result.success, "errors": result.errors,
             "elapsed_seconds": result.elapsed_seconds, "node_timings": result.node_timings,
@@ -206,15 +228,20 @@ async def run_workflow_stream(req: RunRequest):
                 on_progress=on_progress, on_log=on_log, cancel_event=cancel_ev,
             )
             result = runner.run(workflow, req.initial_inputs or None)
+            output_files = _collect_output_files(result)
+            packed, truncated = _pack_outputs(result)
             record = ExecutionRecord(
                 id=f"run_{int(time.time())}_{uuid.uuid4().hex[:4]}",
                 workflow_id=req.id or "unnamed", workflow_name=req.name or "이름 없음",
                 started_at=started, finished_at=datetime.now().isoformat(timespec="seconds"),
                 success=result.success, elapsed_seconds=round(result.elapsed_seconds, 2),
-                errors=result.errors, node_timings=result.node_timings,
+                errors=result.errors,
+                node_timings=timings_to_list(result.node_timings, node_name_map),
+                cancelled=result.cancelled,
+                outputs=packed, output_files=output_files,
+                workflow_snapshot=_snapshot(req, wf_data),
             )
             deps.store.add_history(record)
-            output_files = _collect_output_files(result)
             if result.success and output_files:
                 import os as _os, platform as _pf
                 for f in output_files:

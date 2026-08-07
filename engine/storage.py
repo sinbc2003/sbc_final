@@ -48,7 +48,25 @@ class ExecutionRecord:
     success: bool
     elapsed_seconds: float
     errors: list[str] = field(default_factory=list)
-    node_timings: dict[str, float] = field(default_factory=dict)
+    # [{node_id, node_name, elapsed}] — 프론트가 기대하는 배열 형식.
+    # (예전엔 dict[node_id→float]이라 이력 상세에서 .reduce가 터졌다.)
+    node_timings: list[dict] = field(default_factory=list)
+    cancelled: bool = False
+    # 재사용·결과 확인용 — 예전엔 이력이 '언제 몇 초'만 담아 사실상 장식이었다.
+    outputs: dict = field(default_factory=dict)
+    output_files: list[dict] = field(default_factory=list)
+    workflow_snapshot: dict = field(default_factory=dict)
+
+
+def timings_to_list(timings, node_name_map: dict[str, str] | None = None) -> list[dict]:
+    """runner의 dict[node_id→초]를 이력 저장 형식(배열)으로 변환."""
+    if isinstance(timings, list):
+        return timings
+    names = node_name_map or {}
+    return [
+        {"node_id": nid, "node_name": names.get(nid, nid), "elapsed": round(sec, 2)}
+        for nid, sec in (timings or {}).items()
+    ]
 
 
 def _now_iso() -> str:

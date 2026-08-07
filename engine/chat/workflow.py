@@ -1,4 +1,8 @@
-"""워크플로우 자동 생성 + 양식(form) assist 채팅."""
+"""워크플로우 자동 생성 채팅.
+
+양식(form) assist는 `routes/chat.py`의 async 판이 유일한 진입점이다 —
+여기에도 같은 로직이 있었으나 두 판이 갈라져(스캔 범위·자동 열기) 제거했다.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +19,10 @@ _log = logging.getLogger("chat_handler")
 # 무제한 누적은 소형모델 컨텍스트를 넘긴다. 최근 N개 메시지만 보낸다.
 _HISTORY_TURNS = 12
 
-from engine.chat.intake import (
+# 하위 호환 재수출 — `from engine.chat_handler import detect_form_intent` 등이
+# 이 모듈을 거쳐 접근한다(패키지 facade가 intake에서 직접 가져오지만, 기존
+# import 경로를 깨지 않기 위해 유지).
+from engine.chat.intake import (  # noqa: F401
     FORM_EXTENSIONS, detect_form_intent, extract_file_paths, extract_user_instruction,
 )
 
@@ -514,16 +521,12 @@ def handle_chat(
     store,
     model: str | None = None,
 ) -> dict[str, Any]:
-    """채팅 메시지 처리. Returns {reply, workflow_id, workflow_json}.
+    """채팅 메시지 처리(워크플로우 생성). Returns {reply, workflow_id, workflow_json}.
 
-    양식 파일 + 수정/채우기 의도 감지 시 FormAssist 파이프라인으로 자동 라우팅.
+    양식 파일 + 채우기 의도는 **라우트(`routes/chat.py`)가 먼저 가로채** FormAssist로
+    보낸다. 여기서 같은 라우팅을 중복 구현했더니 두 판이 갈라졌고(스캔 범위·자동
+    열기 차이), 이쪽 판은 COM 스캔을 run_on_com 밖에서 동기 호출하는 문제도 있었다.
     """
-    # ── 0. FormAssist 자동 라우팅 ──
-    file_paths = extract_file_paths(message)
-    if detect_form_intent(message, file_paths):
-        _log.info("FormAssist 라우팅 시작")
-        return _handle_form_assist_chat(message, file_paths, model)
-
     presets_dir = Path(store._presets_dir) if hasattr(store, "_presets_dir") else Path("data/presets")
 
     # 모델 파싱 (provider/model 형식). 미지정이면 설정의 활성 프로바이더를
@@ -645,108 +648,3 @@ def handle_chat(
         "workflow_id": None,
         "workflow_json": None,
     }
-
-
-
-def _handle_form_assist_chat(
-    message: str,
-    file_paths: list[str],
-    model: str | None = None,
-) -> dict[str, Any]:
-    """채팅에서 FormAssist 파이프라인 직접 호출. 양식 파일을 셀 단위로 처리."""
-    from engine.form_assist import run_form_assist
-
-    instruction = extract_user_instruction(message)
-    files = [{"path": p, "name": Path(p).name} for p in file_paths]
-
-    # 양식 파일 인덱스: 양식 확장자 파일 중 마지막
-    output_idx = -1
-    for i, f in enumerate(files):
-        if Path(f["path"]).suffix.lower() in FORM_EXTENSIONS:
-            output_idx = i
-
-    # LLM 모델 설정
-    llm_provider = "auto"
-    llm_model = model or ""
-
-    logs: list[str] = []
-
-    try:
-        # HWP 양식일 때 InitScan 스캔 (COM 스레드 필요 → 동기 호출)
-        hwp_elements = None
-        if output_idx >= 0:
-            tp = files[output_idx]["path"]
-            ext = Path(tp).suffix.lower()
-            if ext in (".hwp", ".hwpx"):
-                try:
-                    from engine.form_assist import scan_hwp_structure
-                    hwp_elements = scan_hwp_structure(tp, lambda m: logs.append(m))
-                except Exception as e:
-                    _log.warning(f"HWP 스캔 실패 (채팅): {e}")
-
-        # 출력 디렉토리
-        try:
-            from engine import deps
-            out_dir = deps.settings_mgr.get("general", "output_dir", "")
-        except Exception:
-            out_dir = ""
-
-        result = run_form_assist(
-            files=files,
-            instruction=instruction,
-            output_file_idx=output_idx,
-            llm_provider=llm_provider,
-            llm_model=llm_model,
-            log_cb=lambda m: logs.append(m),
-            output_dir=out_dir,
-            hwp_elements=hwp_elements,
-        )
-
-        # HWP COM 채우기 (fill_data가 있으면)
-        output_file = result.get("file")
-        fill_data = result.get("fill_data")
-        template_path = result.get("template_path")
-        save_dir = result.get("save_dir", out_dir)
-
-        if fill_data and template_path and hwp_elements:
-            try:
-                from engine.form_assist import fill_hwp_by_cells
-                output_file = fill_hwp_by_cells(
-                    template_path, fill_data, hwp_elements,
-                    lambda m: logs.append(m), output_dir=save_dir,
-                )
-                result["file"] = output_file
-            except Exception as e:
-                _log.warning(f"HWP 채우기 실패 (채팅): {e}")
-
-        # 응답 구성
-        file_names = [f["name"] for f in files]
-        form_name = files[output_idx]["name"] if output_idx >= 0 else "양식"
-
-        reply_parts = [f"**{form_name}** 양식을 분석하여 채웠습니다."]
-        if output_file:
-            reply_parts.append(f"\n완성 파일: `{Path(output_file).name}`")
-        if logs:
-            summary_logs = [l for l in logs if "빈칸" in l or "완료" in l or "완성" in l or "항목" in l]
-            if summary_logs:
-                reply_parts.append("\n" + "\n".join(f"- {l}" for l in summary_logs[-5:]))
-
-        return {
-            "reply": "\n".join(reply_parts),
-            "workflow_id": None,
-            "workflow_json": None,
-            "form_assist": True,
-            "file": output_file or result.get("file"),
-            "logs": logs,
-        }
-
-    except Exception as e:
-        _log.error(f"FormAssist 채팅 처리 실패: {e}", exc_info=True)
-        return {
-            "reply": f"양식 처리 중 오류가 발생했습니다: {e}",
-            "workflow_id": None,
-            "workflow_json": None,
-            "form_assist": True,
-            "file": None,
-            "logs": logs,
-        }

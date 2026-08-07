@@ -104,6 +104,27 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     elif lora:
         context["log"](f"LoRA 어댑터 요청: '{lora}' (로컬 서버 프리로드 시 생성에 적용)")
 
+    # 현재 배선은 **서버 기동 시 프리로드한 어댑터 1개**를 요청별로 켜고 끄는
+    # 방식이다(요청별 교체 미지원). 이름을 잘못 적으면 조용히 다른 어댑터가
+    # 적용되거나 베이스로 실행되어 품질 저하 원인을 못 찾는다 → 명시적으로 알린다.
+    if lora and provider in ("auto", "local"):
+        try:
+            loaded = llm._resolve_lora_path()
+        except Exception:
+            loaded = None
+        loaded_name = loaded.stem if loaded else ""
+        if not loaded_name:
+            context["log"](
+                f"[WARN] 어댑터 '{lora}'를 요청했지만 서버에 로드된 LoRA가 없습니다 "
+                f"— 베이스 모델로 실행됩니다(설정 > local_lora 확인)"
+            )
+        elif (lora.lower() not in loaded_name.lower()
+              and loaded_name.lower() not in lora.lower()):
+            context["log"](
+                f"[WARN] 요청한 어댑터 '{lora}'와 서버에 로드된 '{loaded_name}'가 "
+                f"다릅니다 — 로드된 어댑터가 적용됩니다(요청별 교체 미지원)"
+            )
+
     context["progress"](0.1)
 
     # 모델 정보

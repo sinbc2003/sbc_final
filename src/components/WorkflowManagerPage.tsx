@@ -3,7 +3,7 @@ import {
   Search, Clock, Copy, Trash2, Star, FileJson,
   ChevronRight, AlertCircle, CheckCircle2,
   MoreHorizontal, Edit3, Download, Plus, ArrowUpDown,
-  Play, FolderOpen,
+  Play, FolderOpen, Ban,
 } from "lucide-react";
 import { useStore } from "../store";
 import { MiniFlowChart } from "./MiniFlowChart";
@@ -31,6 +31,9 @@ interface HistoryRecord {
   success: boolean;
   elapsed_seconds: number;
   errors: string[];
+  cancelled?: boolean;
+  /** 실행이 만든 파일 — 이력에서 바로 열 수 있게 기록에 담긴다 */
+  output_files?: { name: string; path: string; size: number; ext: string }[];
 }
 
 type Tab = "workflows" | "history" | "presets";
@@ -191,26 +194,55 @@ export function WorkflowManagerPage() {
             {history.length === 0 ? (
               <p className="text-center py-12 text-gray-400 text-[13px]">실행 기록 없음</p>
             ) : history.map((rec) => (
-              <div key={rec.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center gap-4">
-                {rec.success
-                  ? <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
-                  : <AlertCircle size={16} className="text-red-500 flex-shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-gray-800 truncate">{rec.workflow_name}</p>
-                  <p className="text-[11px] text-gray-500">{rec.started_at?.slice(0, 16)} · {rec.elapsed_seconds}초</p>
+              <div key={rec.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+                <div className="flex items-center gap-4">
+                  {rec.cancelled
+                    ? <Ban size={16} className="text-gray-400 flex-shrink-0" />
+                    : rec.success
+                      ? <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+                      : <AlertCircle size={16} className="text-red-500 flex-shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-gray-800 truncate">{rec.workflow_name}</p>
+                    <p className="text-[11px] text-gray-500">
+                      {rec.started_at?.slice(0, 16)} · {rec.elapsed_seconds}초
+                      {rec.cancelled && " · 중단됨"}
+                    </p>
+                  </div>
+                  {rec.errors.length > 0 && !rec.cancelled && (
+                    <span className="text-[10px] text-red-500 bg-red-50 px-2 py-0.5 rounded">{rec.errors.length}개 오류</span>
+                  )}
+                  {rec.workflow_id && rec.workflow_id !== "unnamed" && (
+                    <button
+                      onClick={() => openRunner(rec.workflow_id)}
+                      title="같은 워크플로우를 다시 실행"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50
+                        text-[11px] text-emerald-700 font-medium hover:bg-emerald-100 transition-colors"
+                    >
+                      <Play size={11} /> 다시 실행
+                    </button>
+                  )}
                 </div>
-                {rec.errors.length > 0 && (
-                  <span className="text-[10px] text-red-500 bg-red-50 px-2 py-0.5 rounded">{rec.errors.length}개 오류</span>
-                )}
-                {rec.workflow_id && rec.workflow_id !== "unnamed" && (
-                  <button
-                    onClick={() => openRunner(rec.workflow_id)}
-                    title="같은 워크플로우를 다시 실행"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50
-                      text-[11px] text-emerald-700 font-medium hover:bg-emerald-100 transition-colors"
-                  >
-                    <Play size={11} /> 다시 실행
-                  </button>
+
+                {/* 그때 만든 파일 — '지난주 그 문서 다시 열기' 동선 */}
+                {rec.output_files && rec.output_files.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2 pl-9">
+                    {rec.output_files.map((f) => (
+                      <button
+                        key={f.path}
+                        onClick={() => {
+                          fetch("/api/files/open", {
+                            method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ path: f.path }),
+                          }).catch(() => {});
+                        }}
+                        title={f.path}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-gray-50 border border-gray-200
+                          text-[10px] text-gray-600 hover:bg-amber-50 hover:border-amber-200 transition-colors"
+                      >
+                        <FileJson size={10} /> {f.name}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             ))}

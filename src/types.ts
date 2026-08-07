@@ -4,6 +4,8 @@ export interface PortSpec {
   type: string;
   accept?: string[];
   description?: string;
+  /** 비어 있어도 실행되는 입력 (엔진 PortSpec.optional과 동일) */
+  optional?: boolean;
 }
 
 /** 노드 파라미터 정의 */

@@ -6,6 +6,10 @@
   "version": "0.2.12",
   "author": "Elements Corp.",
   "license": "MIT",
+  "scripts": {
+    "gen:nodes": "python scripts/gen_default_nodes.py",
+    "check:nodes": "python scripts/gen_default_nodes.py --check"
+  },
   "packageManager": "pnpm@10.0.0",
   "pnpm": {
     "onlyBuiltDependenciesFile": "./trusted-dependencies-scripts.json"

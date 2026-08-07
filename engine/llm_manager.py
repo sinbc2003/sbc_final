@@ -640,6 +640,37 @@ class LLMManager:
             dirs.append(self._models_dir / "loras")
         return dirs
 
+    def list_loras(self) -> list[dict[str, Any]]:
+        """설치된 LoRA 어댑터 목록. UI 드롭다운·안내용.
+
+        노드의 lora 파라미터가 자유 텍스트라 오타 시 조용히 베이스로 실행되던
+        문제 때문에 만들었다. active = 설정 기본 어댑터(local_lora)와 일치하는 것.
+        """
+        active = (self._config.get("local_lora") or "").strip().lower()
+        seen: set[str] = set()
+        result: list[dict[str, Any]] = []
+        for d in self._lora_dirs():
+            if not d.exists():
+                continue
+            for f in sorted(d.rglob("*.gguf")):
+                key = str(f.resolve()).lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    size_mb = round(f.stat().st_size / 1024 / 1024)
+                except OSError:
+                    size_mb = 0
+                result.append({
+                    "name": f.stem,
+                    "file": f.name,
+                    "path": str(f),
+                    "size_mb": size_mb,
+                    "active": bool(active and (active in f.stem.lower()
+                                               or active in str(f).lower())),
+                })
+        return result
+
     def _find_lora(self, lora_name: str) -> Path | None:
         """이름 부분일치로 LoRA 어댑터(gguf) 찾기."""
         for d in self._lora_dirs():

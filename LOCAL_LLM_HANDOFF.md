@@ -929,6 +929,8 @@ benchmark에 `--gguf`(모델 지목)+결과에 {gguf,quant,size,elapsed} 스탬�
 
 > 지시: "다음작업 이어서 진행" → §26이 남긴 **H/M 6건**을 순서대로 구현. 이 섹션이 진행 원장이다.
 
+> **상태(2026-08-07 종료): §26 백로그 31건 전부 완료** — H/S 12(§26) + H/M 6 + M/S 4 + M/M 4 + L/S 1. 상세는 아래 ①~⑧.
+
 **H/M (6건)** — [✅]완료 / [ ]대기
 - [✅] **실행 중 취소 수단** (`runner.py`·`routes/execution.py`·Toolbar·ExecutionPanel·TaskRunner)
 - [✅] **워크플로우 생성 GBNF 강제** (`chat/workflow.py`) — §26이 지목한 "신뢰성 최대 병목"
@@ -988,8 +990,20 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 - **깨진 워크플로우 JSON 복구·안내**: `_loads_lenient`(후행 콤마·스마트 따옴표·**토큰 절단 시 완성된 원소까지만 살려 닫기**) → 그래도 실패하고 워크플로우 시도로 보이면 **온도 0.1로 1회 재시도** → 최종 실패 시 깨진 원문 대신 "요청을 더 짧게 나누세요" 안내. 필수 키까지 잘린 절단은 일부러 살리지 않고 재시도로 보낸다(반쪽 워크플로우 저장 방지).
 - **우클릭 노드 추가 좌표**: `onPaneContextMenu`에서 `screenToFlowPosition`을 계산해 `ContextMenuState.flowX/flowY`로 전달(onDrop과 같은 규칙). 팬·줌 상태에서 화면 밖에 노드가 생기던 문제 해소.
 
-### ⏭️ 다음 세션 (§26 잔여)
-**M/M**: 실행 이력 재사용/node_timings 형식 · FormAssist 채팅 로직 2곳 중복(`routes/chat.py:61`) · defaultNodes 드리프트(yaml 생성기) · llm_generate LoRA 자유텍스트(어댑터 목록 API)
+### ⑧ M/M 4건 — **§26 백로그 31건 전부 종료**
+- **실행 이력 재사용**: `ExecutionRecord`에 `outputs`·`output_files`·`workflow_snapshot`·`cancelled` 추가, `node_timings`를 **배열 형식**(`{node_id,node_name,elapsed}`)으로 저장(`timings_to_list`, 옛 dict도 그대로 통과). 이력 행에 **그때 만든 파일 열기** 버튼 + 중단 표시. ※ 형식 불일치로 크래시난다던 `WorkflowManager.tsx`는 **어디에서도 import되지 않는 죽은 파일**이었다(현행 화면은 `WorkflowManagerPage.tsx`) — 이번 배열 전환으로 기대 형식은 오히려 일치하게 됐다.
+- **FormAssist 중복 제거**: `chat/workflow.py`의 `_handle_form_assist_chat`과 라우팅 삭제 → `routes/chat.py`의 async 판이 유일 진입점. 라우트가 먼저 가로채므로 죽은 코드였고, 이쪽 판은 COM 스캔을 `run_on_com` 밖에서 동기 호출하는 문제도 있었다. facade 재수출은 유지(기존 import 무수정).
+- **defaultNodes 드리프트**: `scripts/gen_default_nodes.py`(PyYAML — js-yaml 새 의존성 회피)로 `node.yaml` → `src/defaultNodes.ts` **생성**. `npm run gen:nodes` / `npm run check:nodes`(드리프트면 exit 1) 등록, **오프라인 테스트에 드리프트 검사 편입**. 겸사 `types.ts PortSpec.optional` 추가(엔진과 불일치였음). **App.tsx는 엔진 연결 시 엔진 카탈로그만 사용** — default 전용 노드를 팔레트에 섞으면 실행 시 반드시 실패한다(§14 지적).
+- **LoRA 어댑터**: `GET /api/loras`(설치 목록·active 표시) + PropertiesPanel **드롭다운**(설정 기본 / 사용 안 함) + 실제 적용 어댑터 표기. **중요**: 현재 배선은 서버 기동 시 프리로드한 **어댑터 1개를 요청별로 켜고 끄는** 방식이라 노드에 다른 이름을 적어도 교체되지 않는다 → `llm_generate`가 요청명과 로드된 어댑터가 다르면 **경고 로그**를 남긴다(조용한 품질 저하 제거). node.yaml 설명도 이 사실을 명시.
+
+**검증**: 오프라인 **103 PASS/0 FAIL**. `/api/loras` 4개(active=gongmun_g4e2b_v1). LoRA 4케이스 실측 — 잘못된 이름→경고, `gongmun`→무경고, `none`→베이스, 빈값→설정 기본. 이력 레코드 실측(배열 timings·outputs·snapshot 2노드/1엣지). 브라우저: 속성패널 드롭다운·"현재 적용 어댑터 gongmun_g4e2b_v1(46MB)", 이력 30행 정상 + 파일 열기 버튼. tsc 클린.
+⚠️ **주의(스크립트 작성 시)**: `LLMManager(models_dir, config)` — 위치 인자로 `LLMManager(cfg)`를 넘기면 config가 통째로 무시된다(테스트 스크립트에서 실제로 겪음).
+
+### ⏭️ 다음 세션
+§26 백로그(4렌즈 31건)는 **H/S 12 + H/M 6 + M/S 4 + M/M 4 + L/S 1 = 전부 완료**. 다음 대형 트랙은 §22 기준 그대로:
+1. **배포 패키징**(엔진 EXE + Tauri + GGUF 동봉, §9) — 교사 PC 원클릭 설치가 마지막 관문
+2. **LoRA 증류 v3**(1,557쌍 대기, GPU 필요 / E4B checkpoint-84 재개 가능 §25)
+3. 소품: E2B 편집 값변형, Excel 라이브 채움, API키 보안, training_logger
 **이번에 발견(백로그 밖, 미수정)**: `StatusBar.tsx:34`가 **없는 엔드포인트 `/api/rag/stats`를 10초마다 폴링**(초기 커밋부터 — `engine/routes/rag.py`엔 ingest/query/export/import만 있다). 조용히 404라 RAG 문서 수 표시가 처음부터 죽어 있었다. 라우트 추가(`vector_store` 문서 수) 또는 폴링 제거 중 택1.
 ※ 이번에 함께 해소된 항목: **입력 포트 다중 연결**(M/S) · **모델 미지정 openai 하드코딩 폴백**(M/S) · **from_port 누락 KeyError→HTTP 500**(M/S, `Workflow.from_json`을 관대하게 + 노드 id 없으면 명확한 ValueError) · **채팅 history 무제한 누적**(L/S).
 

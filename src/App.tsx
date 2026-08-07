@@ -6,18 +6,17 @@ import type { NodeDefinition } from "./types";
 
 /* ── 초기 노드 정의 로드 ─────────────────────────── */
 async function loadNodeDefinitions(): Promise<NodeDefinition[]> {
-  // 엔진 노드가 있으면 가져와서 fallback과 병합 (엔진 우선)
   let engineNodes: NodeDefinition[] = [];
   try {
     const resp = await fetch("/api/nodes");
     if (resp.ok) engineNodes = await resp.json();
   } catch {}
 
-  // 엔진 노드가 있으면 fallback과 병합 (엔진 노드가 우선)
-  if (engineNodes.length === 0) return DEFAULT_NODE_DEFINITIONS;
-  const engineIds = new Set(engineNodes.map((n) => n.id));
-  const extras = DEFAULT_NODE_DEFINITIONS.filter((f) => !engineIds.has(f.id));
-  return [...engineNodes, ...extras];
+  // 엔진이 붙어 있으면 **엔진 카탈로그만** 쓴다.
+  // 예전엔 default 전용 노드를 팔레트에 섞었는데, 엔진에 없는 노드는 실행하면
+  // 반드시 실패한다(§14 감사 지적). defaultNodes.ts는 엔진 미연결 시 폴백 전용.
+  if (engineNodes.length > 0) return engineNodes;
+  return DEFAULT_NODE_DEFINITIONS;
 }
 
 export default function App() {

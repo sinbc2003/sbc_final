@@ -44,6 +44,14 @@ async def list_models():
     return []
 
 
+@router.get("/api/loras")
+async def list_loras():
+    """설치된 LoRA 어댑터 목록 — llm_generate의 lora 파라미터 선택지."""
+    if deps.llm_manager:
+        return deps.llm_manager.list_loras()
+    return []
+
+
 @router.get("/api/design-skills")
 async def list_design_skills():
     skills_dir = deps.ROOT / "engine" / "skills" / "design"

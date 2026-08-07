@@ -448,6 +448,23 @@ def t_port_repair():
     check("오류에 가능한 포트 안내", any("가능:" in e and "출력" in e for e in e3))
 
 
+# ── 14. defaultNodes.ts 드리프트 (진실원천 = node.yaml) ──
+def t_default_nodes_drift():
+    print("[defaultNodes drift]")
+    import subprocess as _sp
+    from pathlib import Path as _P
+    script = _P(ROOT) / "scripts" / "gen_default_nodes.py"
+    if not script.exists():
+        check("생성기 존재", False)
+        return
+    r = _sp.run([sys.executable, str(script), "--check"], cwd=str(ROOT),
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env={**__import__("os").environ, "PYTHONUTF8": "1"})
+    check("defaultNodes.ts == node.yaml (npm run gen:nodes)", r.returncode == 0)
+    if r.returncode != 0:
+        print("   ", (r.stdout or r.stderr).strip()[:200])
+
+
 # ── 13. 깨진 워크플로우 JSON 복구 (후행 콤마·절단·스마트 따옴표) ──
 def t_json_recovery():
     print("[json recovery]")
@@ -524,7 +541,7 @@ def t_presets():
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
                t_grid_roundtrip, t_verify_retry, t_chunking, t_cancel, t_workflow_envelope,
-               t_port_repair, t_presets, t_json_recovery):
+               t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

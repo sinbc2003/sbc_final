@@ -31,7 +31,7 @@ params:
     label: LoRA 어댑터
     type: string
     default: ""
-    description: "사용할 LoRA 어댑터 이름. 비워두면 설정의 기본 어댑터를 따르고, 'none'을 넣으면 어댑터 없이 베이스 모델로 생성한다."
+    description: "비워두면 설정의 기본 어댑터를 사용하고, 'none'이면 어댑터 없이 베이스 모델로 생성한다. 서버 기동 시 프리로드한 어댑터 1개를 켜고 끄는 방식이라 다른 이름을 적어도 교체되지 않는다(설정 > local_lora에서 변경)."
 
   - id: provider
     label: LLM 제공자
