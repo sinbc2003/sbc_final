@@ -1060,6 +1060,21 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **학습 기동(16:40)**: `train_lora.py --model D:\models\hf\gemma-4-E2B-it --out D:\lora_train\out\gongmun_g4e2b_v3 --max-len 2048 --batch 1 --grad-accum 16 --no-4bit --no-eval` (venv=D:\lora_train\venv, TMP/HF_HOME=D:, detached, 로그 D:\lora_train\g4e2b_v3.log/.err). ~265스텝, v1 19s/step 기준 ~90분 예상. save_steps=28.
 - 학습 후 순서(§25): convert_lora_to_gguf → `gongmun_g4e2b_v3.gguf` → A/B + **유형 혼선 검사(공문 5·계획서 5)** → 어댑터 off 벤치 회귀 → stage_bundle/default_settings v3 반영.
 
+### v3 완료 — 학습·검증·판정·번들 반영 ✅
+- **학습**: 69분(4,129s, 265스텝), train_loss **1.154**(v1 1.2 대비 개선). → `convert_lora_to_gguf.py`(llama.cpp 리포) → `D:\models\loras\gongmun_g4e2b_v3.gguf`(48.3MB).
+- **A/B(배포 E2B Q4 장착, per-request scale 토글)**: OFF=마크다운 문서투+연도 2024 가정 / ON=**완전한 기안문**(관련→본문 개조식(가나다)→붙임 N부. 끝.) — v1보다 세부 구조 일관성 상승. 공문 5종 중 4종 우수, 1종(급식 위생점검)은 **법령 나열 반복 루프**(§25 기지 이슈 — repeat penalty 검토 유지). 관련번호 환각·수원외고 편향 지속(후처리 치환 필수, §25 그대로).
+- **혼선 검사 판정(중요)**: 어댑터 ON 상태에서 계획서·가정통신문 요청 시 **v1은 형식 대체로 유지**(공문 요소 소량 유입)인데 **v3는 심하게 붕괴** — 전국 공문의 "본문 짧게, 붙임 참조" 습관까지 학습해 본문 생성을 회피("…붙임과 같이 수립하여 …합니다. 끝." 껍데기). **판정: v3 = 공문 전용 어댑터로 채택**(공문 품질은 상승), 비공문 경로 어댑터 누수 감사 수행:
+  - `preset_form_fill`의 fill_llm(llm_generate)이 **lora 미지정 → 설정 폴백으로 공문 어댑터가 빈칸 채우기에 적용되던 누수** 발견 → `lora:"none"` 명시(수정).
+  - newsletter/plan_doc 프리셋은 이미 none(§27 ⑥), roster는 LLM 무사용, **채팅·워크플로우 생성(generate_chat)은 lora 인자 자체가 없어 베이스 그대로** — 안전 확인.
+- **벤치 회귀**: v3 프리로드(scale0) 상태 **495/495(100%, 13.2s)** — §25 미실행 항목(어댑터 off 회귀) 해소.
+- **번들 반영**: stage_bundle LORA→v3·default_settings local_lora→`gongmun_g4e2b_v3`, 번들 loras에서 v1 제거, NSIS·포터블 재생성. 부수: stage_bundle에 **rmtree AV 잠금 대응**(재시도+덮어쓰기 폴백 — AhnLab이 bundle 하위 핸들을 오래 잡는 실측).
+- **v4 데이터 개선 아이디어(다음 학습 시)**: ①전국 코퍼스의 붙임-회피 샘플 필터(completion 본문 길이 하한 or "붙임과 같이" 단독 본문 드롭) ②유형 균형(계획서·안내문 비중 확대 — 혼선 완화) ③repeat penalty 옵션 배선.
+
+### ⚠️ 세션 말미 머신 웨지 — 재부팅 후 확인 1건
+18시 이후 이 Desktop에서 **새로 기동하는 PyInstaller EXE(engine.exe)가 첫 스레드 Initialized 상태로 정지**(출력 0바이트, WS 1.9MB 고정)하고, taskkill된 프로세스가 좀비로 잔존(액세스 거부)하는 증상 발생 — python/curl 등 일반 프로세스는 정상. 필터 드라이버(AV 계열) 이미지-로드 콜백 웨지로 추정, **재부팅으로 해소될 것**. rmtree AV 잠금(stage_bundle/make_portable 폴백 추가)과 같은 시간대에 시작.
+**영향**: v3 최종 신규설치 E2E(포터블 재실행)만 미완 — 그 외 전 검증은 웨지 전 완료(A/B·혼선·벤치 495/495·번들 파일 검증). 참고로 같은 포터블 레이아웃의 신규설치 E2E는 v1 시드 시점(16:50)에 통과했고, 이후 델타는 어댑터 gguf 교체+설정 문자열뿐.
+**재부팅 후 할 일**: `E:\sbc_lab\tf_build\TeacherFlow-portable\TeacherFlow.exe` 실행 → %LOCALAPPDATA%\TeacherFlow 삭제 후 첫 실행 기준 settings.json의 local_lora=`gongmun_g4e2b_v3` 확인 → 공문 프리셋 1회 생성 확인. (당시 좀비: llama-server 1·engine 4 — 재부팅이 정리)
+
 ### ⏭️ 다음 트랙 (사용자 지시 2026-08-07: "inline AI 수준 + 로컬 파인튜닝으로 교사 태스크 완벽 동작")
 1. **LoRA 증류 v3**(1,557쌍 대기, §25 — RTX5080 본진, E4B checkpoint-84 재개 가능) — "특정 task 완벽 동작"의 직접 레버
 2. **승인 UX**(inline AI '편집 전 확인하기' — 라이브 편집 액션을 diff 미리보기→승인 후 실행으로. 현재는 즉시 실행)

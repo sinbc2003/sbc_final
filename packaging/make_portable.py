@@ -15,7 +15,21 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import time
 from pathlib import Path
+
+
+def _rmtree_retry(path: Path, attempts: int = 5, delay: float = 2.0) -> bool:
+    """AV가 하위 핸들을 잡아 rmtree가 간헐 실패(stage_bundle과 동일 실측)."""
+    for i in range(attempts):
+        try:
+            shutil.rmtree(path)
+            return True
+        except PermissionError:
+            if i == attempts - 1:
+                return False
+            time.sleep(delay)
+    return False
 
 REPO = Path(__file__).resolve().parent.parent
 RELEASE = Path("E:/sbc_lab/tf_build/cargo_target/release")
@@ -34,9 +48,9 @@ def main() -> None:
     if not exe.exists():
         raise SystemExit(f"먼저 tauri build 필요: {exe} 없음")
 
-    if OUT.exists():
-        shutil.rmtree(OUT)
-    OUT.mkdir(parents=True)
+    if OUT.exists() and not _rmtree_retry(OUT):
+        print("[WARN] 기존 포터블 삭제 실패 — 덮어쓰기로 진행(구 어댑터는 아래서 정리)")
+    OUT.mkdir(parents=True, exist_ok=True)
 
     shutil.copy2(exe, OUT / "TeacherFlow.exe")
     for name in RESOURCES:
@@ -45,14 +59,20 @@ def main() -> None:
             print(f"[WARN] 리소스 없음: {src}")
             continue
         if src.is_dir():
-            shutil.copytree(src, OUT / name)
+            shutil.copytree(src, OUT / name, dirs_exist_ok=True)
         else:
             shutil.copy2(src, OUT / name)
 
     models = BUNDLE / "models"
     if models.exists():
         print("models 복사(GGUF 수 GB — 시간 소요)...")
-        shutil.copytree(models, OUT / "models")
+        shutil.copytree(models, OUT / "models", dirs_exist_ok=True)
+        # 덮어쓰기 경로에서 구버전 어댑터 잔존 방지 — 번들에 없는 gguf 제거
+        bundle_loras = {f.name for f in (models / "loras").glob("*.gguf")}
+        for f in (OUT / "models" / "loras").glob("*.gguf"):
+            if f.name not in bundle_loras:
+                f.unlink()
+                print(f"구 어댑터 제거: {f.name}")
     else:
         print("[WARN] packaging/bundle/models 없음 — stage_bundle.py --full 먼저")
 

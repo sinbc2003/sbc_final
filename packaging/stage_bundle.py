@@ -21,7 +21,21 @@ import argparse
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
+
+
+def _rmtree_retry(path: Path, attempts: int = 5, delay: float = 2.0) -> None:
+    """AV 실시간 검사(AhnLab)가 방금 접근한 폴더 핸들을 잠깐 잡아
+    rmtree가 간헐 WinError 5로 죽는다(실측) — 짧은 백오프 재시도."""
+    for i in range(attempts):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay)
 
 REPO = Path(__file__).resolve().parent.parent
 BUNDLE = REPO / "packaging" / "bundle"
@@ -29,13 +43,13 @@ BUNDLE = REPO / "packaging" / "bundle"
 # 이 장비의 소스 위치 (다른 장비는 인자/수정으로)
 LLAMA_VULKAN_DIR = Path("D:/models/llama_cpp/vulkan")   # fetch_llama_vulkan.py가 채움
 GGUF_BASE = Path("D:/models/teacherflow/e2b/gemma-4-E2B-it-Q4_K_M.gguf")
-LORA = Path("D:/models/loras/gongmun_g4e2b_v1.gguf")
+LORA = Path("D:/models/loras/gongmun_g4e2b_v3.gguf")
 
 DEFAULT_SETTINGS = {
     "llm": {
         "default_provider": "local",
         "local_model": "E2B",              # 부분일치 — 번들 GGUF
-        "local_lora": "gongmun_g4e2b_v1",  # 생성 전용(추출·분류는 베이스, §25 배선)
+        "local_lora": "gongmun_g4e2b_v3",  # 생성 전용(추출·분류는 베이스, §25 배선. v3=§29)
         "local_server_host": "127.0.0.1",
         "local_gpu_layers": 99,
         "local_parallel": 1,
@@ -53,10 +67,18 @@ DEFAULT_SETTINGS = {
 def stage_nodes() -> int:
     dest = BUNDLE / "nodes"
     if dest.exists():
-        shutil.rmtree(dest)
+        try:
+            _rmtree_retry(dest)
+        except PermissionError:
+            # 외부 프로세스가 하위 폴더 핸들을 오래 잡는 경우(실측:
+            # column_mapping) — 삭제 포기하고 덮어쓰기. 노드는 파일 삭제가
+            # 드물어 의미상 안전하나, 노드를 '지운' 배포가 필요하면 잠금
+            # 프로세스 종료 후 재실행할 것.
+            print("[WARN] nodes 삭제 실패 — 덮어쓰기로 진행")
     shutil.copytree(
         REPO / "nodes", dest,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        dirs_exist_ok=True,
     )
     return len([d for d in dest.iterdir() if d.is_dir()])
 
@@ -76,8 +98,11 @@ def stage_llama() -> bool:
         return False
     dest = BUNDLE / "llama"
     if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(LLAMA_VULKAN_DIR, dest)
+        try:
+            _rmtree_retry(dest)
+        except PermissionError:
+            print("[WARN] llama 삭제 실패 — 덮어쓰기로 진행")
+    shutil.copytree(LLAMA_VULKAN_DIR, dest, dirs_exist_ok=True)
     return True
 
 
