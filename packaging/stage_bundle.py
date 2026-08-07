@@ -57,6 +57,7 @@ DEFAULT_SETTINGS = {
     },
     "general": {
         "check_updates": False,            # 차단망 — 조용한 타임아웃 방지
+        "school_name": "",                 # 설치 후 설정에서 입력 — {기관명} 치환(v4)
     },
     "nodes": {
         "auto_update_nodes": False,

@@ -25,6 +25,19 @@ def _render_template(template: str, variables: dict) -> str:
     return re.sub(r"\{\{(.+?)\}\}", replacer, template)
 
 
+def _fill_placeholders(text: str, context: dict) -> str:
+    """LoRA v4가 학습한 {기관명}/{문서번호} placeholder 치환.
+
+    어댑터가 특정 학교명·관련번호를 각인하는 대신 placeholder를 내도록
+    학습됐다(편향 제거) — 학교명은 설정(general.school_name)으로, 관련
+    문서번호는 교사가 채울 표시(○○○○)로 바꾼다.
+    """
+    if "{기관명}" not in text and "{문서번호}" not in text:
+        return text
+    school = (context.get("config", {}).get("school_name") or "").strip() or "○○학교"
+    return text.replace("{기관명}", school).replace("{문서번호}", "○○○○")
+
+
 def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     """텍스트를 문장 경계 기준으로 분할."""
     if len(text) <= chunk_size:
@@ -187,10 +200,10 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
                         pass
                 context["progress"](1.0)
                 context["log"](f"완료 ({len(combined)}자, {len(chunks)}개 청크 처리)")
-                return {"출력텍스트": combined}
+                return {"출력텍스트": _fill_placeholders(combined, context)}
             elif results:
                 context["progress"](1.0)
-                return {"출력텍스트": results[0]}
+                return {"출력텍스트": _fill_placeholders(results[0], context)}
 
     # ── 일반 처리 (짧은 문서) ─────────────────────
     context["log"](f"처리 중... ({len(prompt)}자)")
@@ -207,4 +220,4 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     context["progress"](1.0)
     context["log"](f"완료 ({len(result)}자)")
 
-    return {"출력텍스트": result}
+    return {"출력텍스트": _fill_placeholders(result, context)}

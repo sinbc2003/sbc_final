@@ -151,7 +151,8 @@ async def run_workflow(req: RunRequest):
             "nodes": req.nodes, "edges": _normalize_edges(req.edges), "user_inputs": req.user_inputs,
         }
         workflow = Workflow.from_json(wf_data)
-        run_config = {"output_dir": deps.settings_mgr.get("general.output_dir", "")}
+        run_config = {"output_dir": deps.settings_mgr.get("general.output_dir", ""),
+                      "school_name": deps.settings_mgr.get("general.school_name", "")}
         runner = PipelineRunner(registry=deps.registry, llm_manager=deps.llm_manager,
                                 config=run_config, cancel_event=cancel_ev)
         # 동기 runner.run을 스레드로 — 이벤트 루프 블로킹 방지(실행 중 서버 정지 해소).
@@ -224,7 +225,8 @@ async def run_workflow_stream(req: RunRequest):
             workflow = Workflow.from_json(wf_data)
             runner = PipelineRunner(
                 registry=deps.registry, llm_manager=deps.llm_manager,
-                config={"output_dir": deps.settings_mgr.get("general.output_dir", "")},
+                config={"output_dir": deps.settings_mgr.get("general.output_dir", ""),
+                        "school_name": deps.settings_mgr.get("general.school_name", "")},
                 on_progress=on_progress, on_log=on_log, cancel_event=cancel_ev,
             )
             result = runner.run(workflow, req.initial_inputs or None)

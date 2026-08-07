@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
         "check_updates": True,
         "update_channel": "stable",  # stable | beta
         "output_dir": "",  # 출력 파일 저장 경로 (빈값 = 바탕화면)
+        "school_name": "",  # 우리 학교명 — LoRA v4 {기관명} placeholder 치환에 사용
     },
     "llm": {
         "default_provider": "auto",  # auto | local | claude | openai | gemini

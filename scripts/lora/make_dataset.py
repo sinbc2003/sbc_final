@@ -150,6 +150,68 @@ def main() -> int:
                 n_national += 1
         print(f"전국 공문 병합: {n_national}쌍")
 
+    # ── v4 변환 (§29 판정 후속: 편향·붙임회피·축약매핑·유형균형) ──
+    # 1) 기관-문서번호 placeholder화 — "수원외국어고등학교-1485" 각인이
+    #    서식으로 굳어 기관 지정 프롬프트를 이겼다(실측). 제품은 생성 후
+    #    {기관명}/{문서번호}를 설정·입력값으로 치환한다(llm_generate 후처리).
+    org_num_re = re.compile(
+        r"[가-힣A-Za-z0-9·]{2,20}"
+        r"(?:교육청|교육지원청|고등학교|중학교|초등학교|대학교|학교|유치원|"
+        r"부|과|실|원|센터|담당관)\s?-\s?\d+")
+    # 줄임형·원문 오타("고등하교")까지 — 붙임 파일명에서 실측된 변형들
+    suwon_re = re.compile(r"수원외국어고등[학하]교|수원외국어고|수원외고")
+    for e in examples:
+        c = org_num_re.sub("{기관명}-{문서번호}", e["completion"])
+        c = suwon_re.sub("{기관명}", c)
+        e["completion"] = c
+
+    # 2) 붙임-회피 본문 필터 — 관련·붙임·끝. 제외 실본문이 80자 미만이면
+    #    "붙임과 같이 …합니다" 껍데기(전국 코퍼스 습관). 본문 생성 위축 원인.
+    def _body_len(c: str) -> int:
+        n = 0
+        for l in c.splitlines():
+            s = l.strip()
+            if (not s or s == "끝." or s.startswith("붙임")
+                    or re.match(r"^\d+\.\s*관련", s)):
+                continue
+            n += len(s)
+        return n
+    before = len(examples)
+    examples = [e for e in examples if _body_len(e["completion"]) >= 80]
+    drops["v4:붙임회피"] = before - len(examples)
+
+    # 3) 축약 프롬프트 증강 — 짧은 요청→완결 문서 매핑을 명시 학습
+    #    ("기간제 채용 공문작성" 같은 한 줄 요청에 140자 껍데기가 나오던 원인:
+    #    이 매핑을 배운 적이 없음).
+    terse_templates = ["{t} 공문 작성", "{t} 공문 써줘", "{t} 기안문 작성해줘"]
+    gongmun_long = [e for e in examples
+                    if e.get("meta", {}).get("type") != "report"
+                    and not e.get("meta", {}).get("aug")
+                    and len(e["completion"]) >= 400
+                    and e.get("meta", {}).get("title")]
+    rng.shuffle(gongmun_long)
+    aug = []
+    for e in gongmun_long[:300]:
+        title = e["meta"]["title"]
+        short = re.sub(r"\(.*?\)|\[.*?\]|2\d{3}학?년도?\s?", "", title).strip(" .-")
+        if len(short) < 4:
+            short = title
+        aug.append({"prompt": rng.choice(terse_templates).format(t=short),
+                    "completion": e["completion"],
+                    "meta": {**e["meta"], "aug": "terse"}})
+    examples.extend(aug)
+    print(f"v4: placeholder화 전체 / 붙임회피 드롭 {drops['v4:붙임회피']} / 축약증강 {len(aug)}쌍")
+
+    # 4) 계획서·보고서 업웨이트 ×2 — 공문 비중 재확대에 따른 유형 혼선 완화
+    reports = [e for e in examples if e.get("meta", {}).get("type") == "report"
+               and not e.get("meta", {}).get("aug")]
+    for e in reports:
+        title = e.get("meta", {}).get("title", "")
+        examples.append({"prompt": rng.choice(REPORT_PROMPT_TEMPLATES).format(title=title),
+                         "completion": e["completion"],
+                         "meta": {**e["meta"], "aug": "dup"}})
+    print(f"v4: 계획서 업웨이트 +{len(reports)}쌍")
+
     rng.shuffle(examples)
     n_val = max(1, len(examples) // 20)
     val, train = examples[:n_val], examples[n_val:]
