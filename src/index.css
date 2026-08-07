@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 오프라인 동봉 폰트 — CDN 대체(vite가 해시 파일로 번들) */
+@font-face {
+  font-family: "Pretendard";
+  src: url("./assets/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── 글로벌 ──────────────────────────────────────── */
 * {
   scrollbar-width: thin;

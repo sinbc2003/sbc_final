@@ -24,6 +24,7 @@ DEFAULT_SETTINGS = {
     "llm": {
         "default_provider": "auto",  # auto | local | claude | openai | gemini
         "local_model": "",  # GGUF 파일명(부분일치 가능). 빈값이면 quant 자동 선택
+        "local_lora": "",   # 생성 기본 LoRA 어댑터(이름/경로). 빈값=베이스 (배포는 default_settings.json 시드)
         "local_context_size": 0,  # 0 = 자동(메모리 프로필)
         "default_temperature": 0.7,
         "default_max_tokens": 2048,

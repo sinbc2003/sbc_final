@@ -57,6 +57,25 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 PRESET_SEED_DIR = ROOT / "presets"
 
 
+def seed_settings() -> bool:
+    """번들 기본 설정(리소스 루트/default_settings.json)을 첫 실행에 1회 복사.
+
+    deps의 SettingsManager 싱글턴이 import 시점에 settings.json을 읽으므로
+    이 함수는 반드시 그 전에(모듈 레벨에서) 호출돼야 한다.
+    이미 사용자 설정이 있으면 절대 덮지 않는다.
+    """
+    src = ROOT / "default_settings.json"
+    dest = DATA_DIR / "settings.json"
+    if not src.is_file() or dest.exists():
+        return False
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(src.read_bytes())
+        return True
+    except OSError:
+        return False
+
+
 def seed_presets() -> int:
     """번들 프리셋을 사용자 데이터로 1회 복사(이미 있으면 건드리지 않음)."""
     if not PRESET_SEED_DIR.is_dir():

@@ -12,7 +12,7 @@
     "check:nodes": "python scripts/gen_default_nodes.py --check"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-shell": "^2.2.0",
     "@xyflow/react": "^12.6.0",
     "lucide-react": "^0.469.0",

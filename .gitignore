@@ -61,3 +61,6 @@ Thumbs.db
 # 모델 비교 원장 (로컬 실측 로그)
 scripts/benchmark_ledger.jsonl
 scripts/model_matrix_result.json
+packaging/bundle/
+packaging/app-icon.png
+src-tauri/gen/

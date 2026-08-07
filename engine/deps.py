@@ -12,7 +12,11 @@ import concurrent.futures as _cf
 from pathlib import Path
 from typing import Any
 
-from engine.paths import ROOT, DATA_DIR, NODES_DIR, MODELS_DIR, SKILLS_DIR, IS_FROZEN
+from engine.paths import ROOT, DATA_DIR, NODES_DIR, MODELS_DIR, SKILLS_DIR, IS_FROZEN, seed_settings
+
+# 번들 기본 설정 시드 — 반드시 SettingsManager 생성(아래) 전에.
+# dev(리소스 루트에 default_settings.json 없음)에서는 no-op.
+seed_settings()
 
 # ── 싱글턴 인스턴스 ──
 

@@ -1039,7 +1039,23 @@ UI: Toolbar·ExecutionPanel·TaskRunner에 **중단 버튼**, `ExecutionStatus`�
 
 ### 구현 2단계 — Tauri·프론트 배선 (진행 중)
 package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/tauri 스크립트 — **npm install 하지 말 것**, node_modules 이미 정합) · `src/apiBase.ts` 신설(dev=상대경로/Tauri 프로덕션=`http://127.0.0.1:${window.__ENGINE_PORT__}`) · **fetch 58건 전부 apiUrl() 치환**(+ChatWorkflowPreview 다운로드 앵커 방식) · lib.rs 재작성: pick_port(8406/빈 포트)→엔진 spawn(리소스/engine/engine.exe, TEACHERFLOW_HOME=리소스 루트, CREATE_NO_WINDOW)→RunEvent::Exit에서 kill, 창은 코드 생성(initialization_script로 포트 주입) · plugin-shell 제거(Cargo/capabilities/conf) · tauri.conf: updater/python scope 제거, resources={engine onedir, nodes, data/presets→presets}, NSIS perMachine(ASCII 경로 보장 — llama-server ANSI argv. 관리자 없는 학교 PC 대응은 -m cwd 트릭 확장 후 perUser 검토).
-**남은 것**: 폰트 CDN 제거(Pretendard 로컬 동봉), tauri build 실행(NSIS), 번들 스테이징(llama Vulkan 빌드+GGUF+LoRA), 설치본 E2E.
+**남은 것**: ~~폰트 CDN 제거~~ ~~tauri build~~ ~~번들 스테이징~~ ~~설치본 E2E~~ → 아래 3단계에서 전부 완료.
+
+### 구현 3단계 완료 — 번들·인스톨러·포터블 E2E ✅ (2026-08-07)
+**산출물 2종**:
+- **NSIS 설치본** `E:\sbc_lab\tf_build\cargo_target\release\bundle\nsis\TeacherFlow_0.1.0_x64-setup.exe` (**92.7MB** — 엔진 onedir 285MB+llama Vulkan 99MB+노드+프리셋 압축, **모델 미포함**: NSIS 단일파일 2GB 제약 → 모델은 포터블/모델팩 경로)
+- **포터블(USB)** `E:\sbc_lab\tf_build\TeacherFlow-portable\` (**3.56GB** — E2B Q4 GGUF+공문 LoRA까지 전부. 압축 해제 후 TeacherFlow.exe 더블클릭이 전부)
+**빌드 체인**: `packaging/fetch_llama_vulkan.py`(llama.cpp b10298 win-vulkan-x64 34MB→D:\models\llama_cpp\vulkan, CUDA 605MB 대신 — 교사 GPU 제각각, Vulkan은 CPU 자동폴백) → `packaging/stage_bundle.py --full`(bundle/: 클린 nodes+llama+models+**default_settings.json** 시드) → `pyinstaller engine.spec` → `npx @tauri-apps/cli build`(CARGO_TARGET_DIR=E:) → `packaging/make_portable.py`.
+**추가 배선**: `paths.seed_settings()`(deps의 SettingsManager 생성 **전** 모듈 레벨 호출 필수 — initialize()에서는 늦음) · settings DEFAULT에 local_lora 키 · **엔진 부모감시 워치독**(engine_entry, TEACHERFLOW_PARENT_PID 5초 폴링 — Tauri 강제종료/크래시 시 RunEvent::Exit이 안 돌아 고아가 되는 구멍을 실측으로 확인 후 봉합) · 아이콘 생성(`tauri icon packaging/app-icon.png`) · @tauri-apps/api 2.10→2.11(crate 2.11.5와 minor 일치 강제됨).
+**포터블 E2E 전체 통과**: 앱 실행→엔진 자동기동(포트 주입 8406, webview가 절대URL로 polling 확인)→설정 시드(local_lora=gongmun_g4e2b_v1, provider=local)+프리셋 5종 시드→**가정통신문 프리셋 실행: 번들 Vulkan llama-server 자동기동+E2B+LoRA로 29초(콜드 포함) 생성→hwpx 산출, 날짜 정확·없는 사실 미생성**→taskkill(강제종료) 후 워치독이 엔진·llama-server 정리(9초 내, tasklist 잔존 항목은 핸들 좀비 — 포트 8400 죽음 확인).
+**함정 기록**: ①빌드 전 engine.exe 종료 필수+출력 파이프가 exit code 가림 ②모든 스테이징 스크립트도 PYTHONUTF8=1로 ③엔진 재빌드 후 tauri build 다시 해야 리소스 갱신(구 EXE가 번들에 남아 "코드 고쳤는데 안 됨" 함정 — 시드 미동작으로 실제로 겪음) ④경로: llama-server 재사용 시 _local_process 미소유라 shutdown이 못 죽이는 설계(dev 웜서버용) — frozen에선 워치독+shutdown 이중이라 실측상 정리됨, 완전 보장이 필요하면 exe 경로 스윕 추가 여지.
+**성능 참고**: perMachine 설치(Program Files=ASCII)로 llama-server ANSI argv 문제 회피. 관리자 없는 학교 PC용 perUser는 -m에도 cwd 트릭 확장 후 검토.
+
+### ⏭️ 다음 트랙 (사용자 지시 2026-08-07: "inline AI 수준 + 로컬 파인튜닝으로 교사 태스크 완벽 동작")
+1. **LoRA 증류 v3**(1,557쌍 대기, §25 — RTX5080 본진, E4B checkpoint-84 재개 가능) — "특정 task 완벽 동작"의 직접 레버
+2. **승인 UX**(inline AI '편집 전 확인하기' — 라이브 편집 액션을 diff 미리보기→승인 후 실행으로. 현재는 즉시 실행)
+3. **멀티파일/폴더 단위 작업**(inline AI '폴더의 25개 파일 통합' — 현 노드 파이프라인은 파일 단위. 폴더 스캔→일괄 처리 노드/채팅 의도)
+4. 제품 완성도 소품: 첫 실행 온보딩, 모델팩 없을 때 안내 UI, E2B 편집 값변형·Excel 라이브채움(§22 소품), API키 보안
 
 ## 17. 작업 기록 — 2026-07-10 (form_assist HWPX 그리드 경로 + json_schema 강제 ✅ = §16 1순위 완료)
 

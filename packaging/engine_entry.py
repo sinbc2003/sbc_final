@@ -33,6 +33,33 @@ def main() -> None:
         sys.path.insert(0, root_s)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 부모(Tauri) 감시 — 정상 종료는 RunEvent::Exit이 kill하지만, 크래시나
+    # 강제 종료(taskkill)는 그 경로를 안 타서 엔진+llama-server가 고아로
+    # 남는다(실측). 부모가 사라지면 자식 정리 후 스스로 내려간다.
+    parent_pid = os.environ.get("TEACHERFLOW_PARENT_PID")
+    if parent_pid:
+        import threading
+        import time
+
+        def _watch_parent(pid: int) -> None:
+            import psutil
+            while True:
+                time.sleep(5)
+                if not psutil.pid_exists(pid):
+                    try:
+                        from engine import deps
+                        deps.shutdown()
+                    except Exception:
+                        pass
+                    os._exit(0)
+
+        try:
+            threading.Thread(
+                target=_watch_parent, args=(int(parent_pid),), daemon=True
+            ).start()
+        except ValueError:
+            pass
+
     from engine.server import app
     import uvicorn
 

@@ -47,6 +47,7 @@ hiddenimports = (
         # 기타 런타임 지연 import
         "engine.paths",
         "multipart",  # fastapi 업로드(python-multipart)
+        "psutil",     # 엔트리 부모 감시 워치독
     ]
     + collect_submodules("reportlab")
     + collect_submodules("hwpx")

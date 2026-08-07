@@ -43,6 +43,8 @@ fn spawn_engine(app: &tauri::AppHandle, port: u16) {
     let mut cmd = Command::new(&engine_exe);
     cmd.env("ENGINE_PORT", port.to_string())
         .env("TEACHERFLOW_HOME", &res_dir)
+        // 강제 종료·크래시 대비 — 엔진이 이 PID 소멸을 감지해 자진 정리
+        .env("TEACHERFLOW_PARENT_PID", std::process::id().to_string())
         .current_dir(&res_dir);
     #[cfg(windows)]
     {
