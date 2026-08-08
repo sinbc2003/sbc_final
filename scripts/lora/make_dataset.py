@@ -168,6 +168,14 @@ def main() -> int:
         c = re.sub(r"([^\s]) ?끝\s*\.\s*$", r"\1  끝.", c.rstrip())
         e["completion"] = c
 
+    # 1.3) HTML 표 완성문 드롭(v8) — kordoc이 hwp 표를 HTML로 내보낸 잔재가
+    #      28% 실측. v7에서 생성 출력에 <table> 쓰레기가 그대로 새는 회귀 확인
+    #      — md 파이프 표만 정상 학습 타깃으로 남긴다.
+    before = len(examples)
+    examples = [e for e in examples
+                if "<table" not in e["completion"] and "<tr>" not in e["completion"]]
+    drops["v8:HTML표"] = before - len(examples)
+
     # 1.5) 관련 블록 1줄 정리(v7, §31) — 다항 관련(가.나.다. 나열, 16% 실측)이
     #      생성 시 관련 라인 과잉(v5 6개→v6 3개 잔존)의 학습 원인. 실제 기안
     #      관행대로 첫 참조 1줄로 축약해 "관련은 한 줄"을 학습시킨다.
