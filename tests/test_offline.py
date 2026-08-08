@@ -135,6 +135,41 @@ def t_grid_roundtrip():
     check("셀 주입", n >= 1 and cell.get(ids[0]) == "테스트값")
 
 
+# ── 6b. 부분 슬롯 (괄호형/콜론말미형) 감지·채움 ──
+def t_partial_slots():
+    print("[partial slots]")
+    from engine.hwpml.hwpx_grid import _compose_slot_value
+
+    # 단위: 원문 보존 삽입
+    check("콜론 이어쓰기", _compose_slot_value("소 속 :", "수학과") == ("소 속 : 수학과", True))
+    check("콜론 클리어 금지", _compose_slot_value("소 속 :", " ")[1] is False)
+    check("괄호 삽입(접두 보존)", _compose_slot_value("남 ( )명", "17") == ("남 (17)명", True))
+    check("전각 괄호 유지", _compose_slot_value("（ ）", "가") == ("（가）", True))
+    check("내용 있는 괄호=교체", _compose_slot_value("(인)", "값") == ("값", True))
+    check("빈 셀=교체", _compose_slot_value("", "홍길동") == ("홍길동", True))
+
+    # 감지 + 왕복 (1열 표: 콜론셀은 우측 이웃 없음 → 슬롯)
+    wd = workdir("off_slot_")
+    form = md_to_hwpx("# 서식\n\n| 서식 |\n| --- |\n| 소 속 : |\n| 남 ( )명 |\n", "slot", wd)
+    doc = parse_hwpx(form)
+    slots = {f["value_type"]: f for f in extract_blank_fields(doc)
+             if f["value_type"] in ("paren", "colon")}
+    check("1열 콜론·괄호 슬롯 감지", set(slots) == {"colon", "paren"})
+    if len(slots) == 2:
+        out = str(wd / "filled.hwpx")
+        n = fill_hwpx_cells(form, out, {slots["colon"]["id"]: "수학과",
+                                        slots["paren"]["id"]: "17"})
+        texts = [c.text for g in parse_hwpx(out).tables for c in g.cells.values()]
+        check("슬롯 채움 왕복", n == 2 and "소 속 : 수학과" in texts and "남 (17)명" in texts)
+
+    # 가드: 콜론 라벨 + 값/견본 이웃 → 슬롯 아님 / 빈 이웃 → 이웃만 슬롯
+    form2 = md_to_hwpx("# 서식\n\n| 라벨 | 값 |\n| --- | --- |\n| 위촉 분야 : | 견본학급 |\n| 성명 : | |\n",
+                       "slot2", wd)
+    f2 = extract_blank_fields(parse_hwpx(form2))
+    check("값 이웃 콜론셀 제외", not any(f["value_type"] == "colon" for f in f2))
+    check("빈 이웃이 슬롯", any(f["is_empty"] for f in f2))
+
+
 # ── 7. 채움 후 검증 + 재시도 (LLM 목킹) ──
 def t_verify_retry():
     print("[verify + retry]")
@@ -546,7 +581,8 @@ def t_presets():
 
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
-               t_grid_roundtrip, t_verify_retry, t_chunking, t_cancel, t_workflow_envelope,
+               t_grid_roundtrip, t_partial_slots, t_verify_retry, t_chunking, t_cancel,
+               t_workflow_envelope,
                t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")

@@ -121,7 +121,8 @@ def run_form_assist(
                 grid_doc = parse_hwpx(output_template["path"])
                 grid_fields = [
                     f for f in extract_blank_fields(grid_doc, include_filled=True)
-                    if f.get("value_type") == "text" and _is_fillable(f)
+                    if f.get("value_type") in ("text", "paren", "colon")
+                    and _is_fillable(f)
                 ]
                 grid_fields += extract_body_blanks(output_template["path"])  # 본문 ___
                 grid_fields += _extract_hwpx_fields(output_template["path"])  # 누름틀
@@ -354,7 +355,8 @@ def plan_hwpx_grid_fill(
     grid_doc = parse_hwpx(form_path)
     grid_fields = [
         f for f in extract_blank_fields(grid_doc, include_filled=True)
-        if f.get("value_type") == "text" and _is_fillable(f)
+        if f.get("value_type") in ("text", "paren", "colon")
+        and _is_fillable(f)
     ]
     grid_fields += extract_body_blanks(form_path)
     grid_fields += _extract_hwpx_fields(form_path)
@@ -592,8 +594,14 @@ def _is_placeholder(text: str) -> bool:
 
 
 def _is_fillable(field: dict) -> bool:
-    """빈 셀은 채움 대상. 값이 있으면 명백한(짧은) 자리표시자일 때만."""
+    """빈 셀은 채움 대상. 값이 있으면 명백한(짧은) 자리표시자일 때만.
+
+    부분 슬롯(괄호형/콜론말미형)은 추출기가 이미 판정한 입력칸 —
+    채움도 원문 보존 삽입(_compose_slot_value)이라 덮어쓰기 위험 없음.
+    """
     if field.get("is_empty"):
+        return True
+    if field.get("value_type") in ("paren", "colon"):
         return True
     return _is_placeholder(field.get("current_value", ""))
 
@@ -723,7 +731,7 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
     misc: list = []
     for f in grid_fields:
         m = ID_RE.match(str(f["id"]))
-        if m and f.get("value_type") == "text":
+        if m and f.get("value_type") in ("text", "paren", "colon"):
             by_table.setdefault(f"s{m.group(1)}_t{m.group(2)}", []).append(f)
         else:
             misc.append(f)

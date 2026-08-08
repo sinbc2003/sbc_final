@@ -33,6 +33,12 @@ BLANK_RUN_RE = re.compile(r"[_＿]{3,}")
 # 이 크기 이하의 표는 "정보 표"로 보고 다음 표의 맥락 버퍼에 요약을 넣는다
 SMALL_TABLE_CELLS = 12
 
+# ── 부분 슬롯 (내용이 있는 셀 안의 입력칸) ──
+# 괄호형: '( )명', '(전화: )' 등 빈 괄호쌍 = 괄호 안이 입력칸
+PAREN_SLOT_RE = re.compile(r"[(（]\s*[)）]")
+# 콜론말미형: 셀 전체가 '소 속 :' 처럼 짧은 라벨+콜론으로 끝남 = 콜론 뒤가 입력칸
+COLON_SLOT_RE = re.compile(r"^([^:：]{1,20}?)\s*[:：]\s*$")
+
 
 def _ln(elem) -> str:
     """네임스페이스 제거한 로컬 태그명."""
@@ -357,14 +363,43 @@ def parse_hwpx(path: str) -> HwpxDoc:
 
 # ── 빈칸 추출 ───────────────────────────────────────
 
+def _cell_slot_type(grid: TableGrid, r: int, c: int, cell: GridCell) -> Optional[str]:
+    """내용이 있는 셀이 부분 입력칸(괄호형/콜론말미형)인지 판정.
+
+    실측 근거(전국 양식 48종 센서스): 괄호형 '( )명' 67셀/11문서,
+    콜론말미형 8셀/5문서가 빈-셀 감지에서 누락되던 실재 입력칸.
+    """
+    t = cell.text.strip()
+    if not t:
+        return None
+    if PAREN_SLOT_RE.search(t):
+        return "paren"
+    if COLON_SLOT_RE.match(t):
+        nb = grid.owner(r, c + cell.col_span)
+        if nb is not None:
+            nt = nb.text.strip()
+            if not nt:
+                return None  # 빈 우측 이웃이 진짜 슬롯 (is_empty 경로 담당)
+            if not COLON_SLOT_RE.match(nt):
+                return None  # 이웃에 값/견본 → 이 셀은 단순 라벨
+            # 이웃도 콜론말미('1순위: | 2순위:') → 연쇄 슬롯으로 인정
+        return "colon"
+    return None
+
+
 def extract_blank_fields(doc: HwpxDoc, include_filled: bool = False) -> list[dict]:
-    """빈 셀(anchor)마다 행헤더×열헤더가 계산된 필드 딕셔너리 생성."""
+    """빈 셀(anchor)마다 행헤더×열헤더가 계산된 필드 딕셔너리 생성.
+
+    부분 슬롯(괄호형/콜론말미형) 셀은 내용이 있어도 입력칸이므로
+    include_filled와 무관하게 value_type "paren"/"colon"으로 포함한다.
+    """
     fields: list[dict] = []
     for grid in doc.tables:
         header_rows = grid.header_row_count()
         for (r, c), cell in sorted(grid.cells.items()):
             is_empty = not cell.text.strip()
-            if not is_empty and not include_filled:
+            slot = None if is_empty else _cell_slot_type(grid, r, c, cell)
+            if not is_empty and not include_filled and not slot:
                 continue
             if is_empty and r < header_rows:
                 continue  # 헤더 구간의 빈 셀은 채움 대상 아님
@@ -378,6 +413,11 @@ def extract_blank_fields(doc: HwpxDoc, include_filled: bool = False) -> list[dic
                 label = row_h
             else:
                 label = f"표{grid.index} 행{r} 열{c}"
+            if slot == "paren":
+                label = f"{label} — '{cell.text.strip()[:20]}'의 괄호 안에 들어갈 값"
+            elif slot == "colon":
+                m = COLON_SLOT_RE.match(cell.text.strip())
+                label = f"{m.group(1)} — 콜론 뒤에 들어갈 값"
             fields.append({
                 "id": f"{grid.key}_r{r}_c{c}",
                 "section": grid.section_idx,
@@ -390,7 +430,7 @@ def extract_blank_fields(doc: HwpxDoc, include_filled: bool = False) -> list[dic
                 "context": grid.context,
                 "current_value": cell.text,
                 "is_empty": is_empty,
-                "value_type": "text",
+                "value_type": slot or "text",
             })
     return fields
 
@@ -606,6 +646,29 @@ def relocate_below_markers(doc: HwpxDoc, fill_map: dict, log=None) -> dict:
 
 # ── 셀 채우기 ───────────────────────────────────────
 
+def _compose_slot_value(cur: str, val: str) -> tuple[str, bool]:
+    """부분 슬롯 셀은 원문(라벨)을 보존하며 값을 삽입해 최종 텍스트를 만든다.
+
+    - 콜론말미('소 속 :'): 콜론 뒤에 값 이어쓰기. 빈 값으로 라벨 클리어 금지.
+    - 괄호형('( )명'): 첫 빈 괄호쌍 안에 값 삽입(원 괄호 문자 유지).
+    - 그 외: 기존 의미 그대로(교체, ""=클리어).
+    반환: (최종 텍스트, 쓰기 진행 여부)
+    """
+    cur = cur.strip()
+    if not cur:
+        return val, True
+    if COLON_SLOT_RE.match(cur):
+        if not val.strip():
+            return "", False
+        return f"{cur} {val}", True
+    m = PAREN_SLOT_RE.search(cur)
+    if m:
+        if not val.strip():
+            return "", False
+        return cur[:m.start()] + m.group()[0] + val + m.group()[-1] + cur[m.end():], True
+    return val, True
+
+
 def _set_cell_text(tc, value: str) -> bool:
     """tc 셀의 첫 문단 첫 run에 텍스트 설정. 기존 서식(charPr) 보존."""
     # tc > subList > p > run > t
@@ -740,7 +803,11 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
                                                         int(ch.get("colAddr") or -1))
                                                 break
                                         if addr in wanted:
-                                            if _set_cell_text(tc, wanted[addr]):
+                                            final, ok = _compose_slot_value(
+                                                _elem_text(tc), wanted[addr])
+                                            if not ok:
+                                                continue
+                                            if _set_cell_text(tc, final):
                                                 filled += 1
                                             elif log:
                                                 log(f"셀 구조 인식 실패: t{t_idx} {addr}")
