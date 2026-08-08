@@ -43,13 +43,14 @@ BUNDLE = REPO / "packaging" / "bundle"
 # 이 장비의 소스 위치 (다른 장비는 인자/수정으로)
 LLAMA_VULKAN_DIR = Path("D:/models/llama_cpp/vulkan")   # fetch_llama_vulkan.py가 채움
 GGUF_BASE = Path("D:/models/teacherflow/e2b/gemma-4-E2B-it-Q4_K_M.gguf")
-LORA = Path("D:/models/loras/gongmun_g4e2b_v8.gguf")
+LORA = Path("D:/models/loras/gongmun_g4e2b_v9.gguf")
 
 DEFAULT_SETTINGS = {
     "llm": {
         "default_provider": "local",
         "local_model": "E2B",              # 부분일치 — 번들 GGUF
-        "local_lora": "gongmun_g4e2b_v8",  # 생성 전용 — v8=관련1줄·HTML표 정화·결문 규정(§31)
+        # v9 = 멀티태스크(공문+채움 3배)·관련일자/실명 placeholder (§35b A/B 채택)
+        "local_lora": "gongmun_g4e2b_v9",
         "local_server_host": "127.0.0.1",
         "local_gpu_layers": 99,
         "local_parallel": 1,
