@@ -39,7 +39,57 @@ def _fill_placeholders(text: str, context: dict) -> str:
     # 공백을 정규화해 학습 데이터 99%가 한 칸이었다(사용자 지적, 실측 2,873:22).
     # 모델 출력과 무관하게 규정 표기로 정규화한다.
     text = re.sub(r"([^\s])[ \t]*끝\s*\.\s*$", r"\1  끝.", text.rstrip())
+    text = _format_gongmun_layout(text)
     return text
+
+
+# 항목 기호 단계(행정업무 관행): 1. → 가. → 1)/(1) → 가)/(가) → -·○
+_ITEM_LEVELS = [
+    (re.compile(r"^\d+\.\s"), 0),
+    (re.compile(r"^[가-힣]\.\s"), 1),
+    (re.compile(r"^\(?\d+\)\s"), 2),
+    (re.compile(r"^\(?[가-힣]\)\s"), 3),
+    (re.compile(r"^[-○·•]\s"), 4),
+]
+_NBSP = " "  # 마크다운 4칸 코드블록 오인 없이 들여쓰기를 보존
+
+
+def _format_gongmun_layout(text: str) -> str:
+    """공문 개조식 들여쓰기 정형화(사용자 지적 — 규칙이 명확하니 후처리).
+
+    - 하위 항목은 상위보다 2타씩 들여쓰기(1.→가.→(1) …)
+    - 붙임 목록 2. 이하는 '붙임 ' 폭(5타)만큼 들여 첫 항목 1.과 줄 맞춤
+    - 모델이 흘리는 순수 '>' 인용 잔재 라인 제거
+    공문 산출(첫 항목이 '1. 관련')에만 적용한다.
+    """
+    if not re.match(r"^\s*1\.\s*관련", text):
+        return text
+    out = []
+    in_attach = False
+    for raw in text.splitlines():
+        line = re.sub(r"^>\s?", "", raw).rstrip()
+        s = line.strip()
+        if not s:
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        if s.startswith("붙임"):
+            in_attach = True
+            out.append(s)
+            continue
+        if in_attach:
+            if re.match(r"^\d+\.\s", s):
+                out.append(_NBSP * 5 + s)
+                continue
+            in_attach = False
+        for pat, depth in _ITEM_LEVELS:
+            if pat.match(s):
+                out.append(_NBSP * (2 * depth) + s)
+                break
+        else:
+            # 항목 연속 문장(줄바꿈된 본문)은 그대로
+            out.append(s)
+    return "\n".join(out)
 
 
 def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
