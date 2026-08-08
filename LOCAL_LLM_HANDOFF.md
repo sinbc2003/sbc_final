@@ -1169,6 +1169,10 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **진행 중**: Mac1 배치 재조준 — `--name-filter '^(?=.*2026)(?=.*(서식|양식|신청서))'` 1,500건 (pid 31668, form_batch_2026b.log). 완료 후: hwp→hwpx 일괄 변환(§32 잔여 겸) → --synth 대량 실행 → 학습 JSONL → E2B 학습.
 - **남은 설계**: 편집 액션 쌍 합성(문서+지시→액션 JSON — CVD 블록 렌더에서 목표 블록 선택 학습) · 간결 지시 스타일 확대 · 학습 포맷(json_schema 강제 출력과 정합).
 
+**§35b v9 학습·검증 (8/9 새벽)**: 배치 완결(신규 234, 로컬 282: hwp136/hwpx36/xlsx111) → `convert_hwp_batch.py` 신규(§32 잔여 자동화, **131/131 무실패**) → 코퍼스 172 hwpx → 합성 103종/309쌍 → `merge_v9_dataset.py`(런타임 프롬프트 미러) → **train 2,930/val 154** → E2B 519스텝 1h19m(9s/step, loss 0.77→0.60) → `gongmun_g4e2b_v9.gguf`(96.6MB).
+- **검증 (vulkan 프로덕션 패리티 서버)**: ①공문: **관련일자 placeholder 5/5 방출**·실명 유출 0 — §37 학습 목표 달성 ②채움 held-out A/B: **v9 70% vs 베이스 21% (~3배)** — 양식 연습 데이터 가설 실증(전국 코퍼스에서 베이스는 약함) ③**계획서 혼선 의심**: '계획서 장·절' 지시에 v9이 공문체(1. 관련) 출력, 베이스는 정상 장·절 — v8과의 A/B 필요(채움 데이터 혼합이 계획서 축을 밀었을 가능성). **혼선 A/B + 간결 지시 확인 전까지 번들 채택 보류.**
+- **검증 함정 기록**: ①bin(CUDA 구빌드)은 `--reasoning off` 미작동 — 사고 토큰 1.7~2.2천자 소모로 content 공백/절단(**검증은 반드시 vulkan b10298 + --reasoning off + --jinja**) ②대형 그리드(5천자+)는 max_tokens 부족이 절단 원인 — 런타임은 7천자 청킹이라 완화되나 다항 양식 JSON은 3000 토큰 권장.
+
 ### §36 승인 피드백 루프 — 사용자 수정 = 학습 재료 ✅ (2026-08-09 새벽)
 - **사용자 지시(8/9)**: "사용자가 수정하거나 하는 과정을 로그로 받아서 시스템 개선(후속모델학습)에 사용" — 승인 UX가 수집 지점.
 - **수집**: `POST /api/feedback/approval` → `DATA_DIR/feedback/approval_feedback.jsonl` (로컬 전용·외부 전송 없음·파일명만 저장). 이벤트 = {kind: fill|actions, outcome: applied|cancelled, instruction, model, items[{id, label, proposed, decision, final_value}]}. `GET /api/feedback/stats` = 축적 현황.
