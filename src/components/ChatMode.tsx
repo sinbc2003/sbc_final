@@ -30,6 +30,9 @@ export function ChatMode() {
   // 검토 패널의 종류: 라이브 액션(execute-batch) vs 채움 계획(fill-live/execute)
   const [pendingKind, setPendingKind] = useState<"actions" | "fill">("actions");
   const [pendingFile, setPendingFile] = useState<string>("");
+  // 피드백 수집: 모델 제안 원본(수정 감지용)과 지시문
+  const proposedRef = useRef<Record<number, any>>({});
+  const lastInstructionRef = useRef<string>("");
   // 편집 전 확인 (승인 UX) — 기본 켬, localStorage 유지
   const [approveMode, setApproveMode] = useState(() => localStorage.getItem("tf_approve_mode") !== "0");
   const toggleApproveMode = useCallback(() => {
@@ -187,9 +190,42 @@ export function ChatMode() {
     setConnecting(false);
   }, [liveApp, liveMode, addMessage]);
 
+  // 승인 결정 피드백 — 로컬 JSONL 축적 (후속 학습 재료), 실패 무시
+  const sendApprovalFeedback = useCallback((outcome: "applied" | "cancelled",
+    items: Array<{action: string; params: any; checked: boolean}>) => {
+    try {
+      const payload = {
+        kind: pendingKind === "fill" ? "fill" : "actions",
+        outcome,
+        instruction: lastInstructionRef.current,
+        file: pendingFile,
+        model: selectedModel,
+        app_type: liveApp || "",
+        items: items.map((a, i) => {
+          const orig = proposedRef.current[i];
+          const isFill = a.action === "fill_cell";
+          const edited = isFill && orig !== undefined && a.params?.value !== orig;
+          return {
+            id: isFill ? (a.params?.id || "") : a.action,
+            label: isFill ? (a.params?.label || "") : "",
+            proposed: isFill ? orig : a.params,
+            decision: !a.checked ? "rejected" : edited ? "edited" : "approved",
+            final_value: edited ? a.params?.value : null,
+          };
+        }),
+      };
+      fetch(apiUrl("/api/feedback/approval"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    } catch { /* 피드백은 최선노력 — 본 기능을 막지 않는다 */ }
+  }, [pendingKind, pendingFile, selectedModel, liveApp]);
+
   // 수정 내역 반영
   const handleApplyActions = useCallback(async () => {
     if (!pendingActions || !liveApp) return;
+    sendApprovalFeedback("applied", pendingActions);
     const selected = pendingActions.filter((a) => a.checked);
     if (selected.length === 0) { setPendingActions(null); return; }
     setSending(true);
@@ -234,7 +270,7 @@ export function ChatMode() {
     }
     setPendingActions(null);
     setSending(false);
-  }, [pendingActions, pendingKind, pendingFile, liveApp, addMessage]);
+  }, [pendingActions, pendingKind, pendingFile, liveApp, addMessage, sendApprovalFeedback]);
 
   // HWP 문서 전환
   const switchDocument = useCallback(async (app: string, docIndex: number) => {
@@ -306,6 +342,7 @@ export function ChatMode() {
     }
 
     addMessage({ role: "user", content: userMsg });
+    lastInstructionRef.current = text;
     setInput("");
     const filesToSend = [...attachedFiles];
     setAttachedFiles([]);
@@ -381,6 +418,7 @@ export function ChatMode() {
                 } else if (ev.type === "pending_actions") {
                   // 승인 UX: 실행 전 검토 패널로 (기본 전체선택)
                   setPendingKind("actions");
+                  proposedRef.current = {};
                   setPendingActions(
                     (ev.actions || []).map((a: any) => ({
                       action: a.action || "", params: a.params || {}, checked: true,
@@ -390,6 +428,8 @@ export function ChatMode() {
                   // 승인 UX: 채움 계획을 같은 패널로 (승인 시 fill-live/execute)
                   setPendingKind("fill");
                   setPendingFile(ev.file || "");
+                  proposedRef.current = Object.fromEntries(
+                    (ev.entries || []).map((e: any, i: number) => [i, e.value]));
                   setPendingActions(
                     (ev.entries || []).map((e: any) => ({
                       action: "fill_cell",
@@ -556,7 +596,13 @@ export function ChatMode() {
           onSelectAll={() => setPendingActions((prev) => prev?.map((a) => ({ ...a, checked: true })) ?? null)}
           onDeselectAll={() => setPendingActions((prev) => prev?.map((a) => ({ ...a, checked: false })) ?? null)}
           onApply={handleApplyActions}
-          onCancel={() => setPendingActions(null)}
+          onCancel={() => {
+            if (pendingActions) sendApprovalFeedback("cancelled", pendingActions);
+            setPendingActions(null);
+          }}
+          onEditValue={(i, v) => setPendingActions((prev) =>
+            prev?.map((a, j) => j === i
+              ? { ...a, params: { ...a.params, value: v } } : a) ?? null)}
         />
       )}
       <div className="border-t border-gray-200 px-4 py-3 bg-white">

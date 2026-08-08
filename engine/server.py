@@ -40,9 +40,9 @@ async def shutdown():
 
 # ── 라우터 등록 ──
 
-from engine.routes import system, workflows, execution, files, settings, chat, rag, live, hwp, form_assist
+from engine.routes import system, workflows, execution, files, settings, chat, rag, live, hwp, form_assist, feedback
 
-for router_module in [system, workflows, execution, files, settings, chat, rag, live, hwp, form_assist]:
+for router_module in [system, workflows, execution, files, settings, chat, rag, live, hwp, form_assist, feedback]:
     app.include_router(router_module.router)
 
 

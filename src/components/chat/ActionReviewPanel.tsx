@@ -9,9 +9,11 @@ interface Props {
   onDeselectAll: () => void;
   onApply: () => void;
   onCancel: () => void;
+  /** fill_cell 값 인라인 수정 — 수정값은 정답 라벨로 피드백 로그에 남는다 */
+  onEditValue?: (index: number, value: string) => void;
 }
 
-export function ActionReviewPanel({ actions, sending, onToggle, onSelectAll, onDeselectAll, onApply, onCancel }: Props) {
+export function ActionReviewPanel({ actions, sending, onToggle, onSelectAll, onDeselectAll, onApply, onCancel, onEditValue }: Props) {
   const checkedCount = actions.filter(a => a.checked).length;
   return (
     <div className="border-t border-blue-200 px-4 py-3 bg-blue-50/30">
@@ -40,7 +42,23 @@ export function ActionReviewPanel({ actions, sending, onToggle, onSelectAll, onD
               <input type="checkbox" checked={act.checked}
                 onChange={() => onToggle(i)}
                 className="rounded border-blue-300 text-blue-500 w-3.5 h-3.5" />
-              <span className="text-[12px] text-gray-700">{describeAction(act)}</span>
+              {act.action === "fill_cell" && onEditValue ? (
+                <span className="flex items-center gap-1.5 flex-1 min-w-0 text-[12px] text-gray-700">
+                  <span className="truncate max-w-[45%]">{(act.params?.label || act.params?.id || "").split("—")[0].trim()}</span>
+                  <span className="text-gray-400 flex-shrink-0">←</span>
+                  <input
+                    type="text"
+                    value={act.params?.value ?? ""}
+                    onChange={(e) => onEditValue(i, e.target.value)}
+                    onClick={(e) => e.preventDefault()}
+                    disabled={!act.checked}
+                    className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-blue-200 bg-white
+                      text-[12px] text-gray-800 focus:border-blue-400 focus:outline-none disabled:opacity-40"
+                  />
+                </span>
+              ) : (
+                <span className="text-[12px] text-gray-700">{describeAction(act)}</span>
+              )}
             </label>
           ))}
         </div>

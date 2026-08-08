@@ -1169,6 +1169,13 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **진행 중**: Mac1 배치 재조준 — `--name-filter '^(?=.*2026)(?=.*(서식|양식|신청서))'` 1,500건 (pid 31668, form_batch_2026b.log). 완료 후: hwp→hwpx 일괄 변환(§32 잔여 겸) → --synth 대량 실행 → 학습 JSONL → E2B 학습.
 - **남은 설계**: 편집 액션 쌍 합성(문서+지시→액션 JSON — CVD 블록 렌더에서 목표 블록 선택 학습) · 간결 지시 스타일 확대 · 학습 포맷(json_schema 강제 출력과 정합).
 
+### §36 승인 피드백 루프 — 사용자 수정 = 학습 재료 ✅ (2026-08-09 새벽)
+- **사용자 지시(8/9)**: "사용자가 수정하거나 하는 과정을 로그로 받아서 시스템 개선(후속모델학습)에 사용" — 승인 UX가 수집 지점.
+- **수집**: `POST /api/feedback/approval` → `DATA_DIR/feedback/approval_feedback.jsonl` (로컬 전용·외부 전송 없음·파일명만 저장). 이벤트 = {kind: fill|actions, outcome: applied|cancelled, instruction, model, items[{id, label, proposed, decision, final_value}]}. `GET /api/feedback/stats` = 축적 현황.
+- **신호 등급**: **edited(값 수정)=정답 라벨**(SFT 골드) > rejected=오답(필터·DPO 네거티브) > approved=정답 추정. 검토 패널에 **fill 값 인라인 수정 입력** 신설(수정하면 edited로 기록) — 승인·거절·취소 전부 자동 로깅(fire-and-forget, 본 기능 비차단).
+- **학습 활용 설계**: (당시 grid+instruction, proposed → final_value) SFT 쌍 재구성이 가능하도록 instruction·셀ID·라벨 동봉. 단, grid 렌더 자체는 저장하지 않음(용량) — 재구성 시 파일명으로 원본 조회(로컬에 있을 때) 또는 후속: 이벤트에 grid 해시/축약 렌더 동봉 검토.
+- **검증**: 오프라인 121 PASS(피드백 4케이스 신설 — 기록·경로최소화·결정 3종·수정값), 프론트 빌드 OK, 라우터 등록 확인. ⚠️ 번들 재빌드 전 변경(§33b와 함께 다음 배포에 포함).
+
 ### ⏭️ §31 다음 트랙 계획 (v6 완료 후 — 사용자 8/8 지시 반영)
 1. **표 인식·채우기 고도화** ("문서 제어를 inline AI보다 잘 되게 — 표 인식·칸 채우기 등등"):
    - 하드 벤치 확장: 현 벤치(채용점수표 8표)는 100% 포화 — **중첩표·비정형 양식·표갇힘형(방금 1,375건 확보!)으로 난이도 상승판** 구축 → 실패 사례 발굴 → hwpx_grid/캘리브레이션 개선 사이클.

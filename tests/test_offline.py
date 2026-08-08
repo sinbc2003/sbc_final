@@ -170,6 +170,36 @@ def t_partial_slots():
     check("빈 이웃이 슬롯", any(f["is_empty"] for f in f2))
 
 
+# ── 6c. 승인 피드백 로그 (후속 학습 재료) ──
+def t_feedback_log():
+    print("[feedback log]")
+    import engine.routes.feedback as fbm
+    wd = workdir("off_fb_")
+    orig = fbm.FEEDBACK_DIR
+    fbm.FEEDBACK_DIR = wd
+    try:
+        fbm.record_feedback({
+            "kind": "fill", "outcome": "applied",
+            "file": r"C:\Users\x\문서\양식.hwpx",
+            "items": [
+                {"id": "s0_t0_r1_c1", "decision": "approved", "proposed": "홍길동"},
+                {"id": "s0_t0_r2_c1", "decision": "edited", "proposed": "3반",
+                 "final_value": "5반"},
+                {"id": "s0_t0_r3_c1", "decision": "rejected", "proposed": "오답"},
+            ],
+        })
+        import json as _j
+        lines = (wd / "approval_feedback.jsonl").read_text(encoding="utf-8").splitlines()
+        d = _j.loads(lines[0])
+        check("JSONL 1건 기록+ts", len(lines) == 1 and bool(d.get("ts")))
+        check("경로 최소화(파일명만)", d["file"] == "양식.hwpx")
+        decs = [i["decision"] for i in d["items"]]
+        check("결정 3종 보존", decs == ["approved", "edited", "rejected"])
+        check("수정값=정답 라벨", d["items"][1]["final_value"] == "5반")
+    finally:
+        fbm.FEEDBACK_DIR = orig
+
+
 # ── 7. 채움 후 검증 + 재시도 (LLM 목킹) ──
 def t_verify_retry():
     print("[verify + retry]")
@@ -581,8 +611,8 @@ def t_presets():
 
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
-               t_grid_roundtrip, t_partial_slots, t_verify_retry, t_chunking, t_cancel,
-               t_workflow_envelope,
+               t_grid_roundtrip, t_partial_slots, t_feedback_log, t_verify_retry,
+               t_chunking, t_cancel, t_workflow_envelope,
                t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
