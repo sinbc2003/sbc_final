@@ -49,6 +49,30 @@ def _verify_related_date(text: str, prompt: str) -> str:
     return "\n".join(lines)
 
 
+# 담당·문의 라인의 직함+인명 — 학습데이터 실명 각인 유출 방어 (사용자 실측: '박은비')
+_STAFF_TITLE_RE = re.compile(
+    r"(교무기획부장|기획부장|부장|팀장|교장|교감|교사|주무관|장학사|담당자|담당)"
+    r"\s+([가-힣]{2,3})(?=[)\s,.]|$)")
+# 인명 자리에 오는 일반 명사 오탐 방지
+_NOT_NAMES = {"업무", "부서", "기관", "학교", "내용", "사항", "자료", "문서",
+              "전화", "메일", "번호", "성명", "이름", "선생", "안내", "문의"}
+
+
+def _redact_staff_names(text: str, prompt: str) -> str:
+    """문의·담당 라인의 인명이 사용자 입력에 없으면 ○○○ — 각인 실명 유출 차단."""
+    def _rep(m):
+        name = m.group(2)
+        if name in _NOT_NAMES or name in (prompt or ""):
+            return m.group(0)
+        return m.group(1) + " ○○○"
+
+    lines = text.split("\n")
+    for i, ln in enumerate(lines):
+        if re.search(r"문의|담당|연락", ln):
+            lines[i] = _STAFF_TITLE_RE.sub(_rep, ln)
+    return "\n".join(lines)
+
+
 def _fill_placeholders(text: str, context: dict, prompt: str = "") -> str:
     """LoRA v4가 학습한 {기관명}/{문서번호} placeholder 치환.
 
@@ -70,9 +94,16 @@ def _fill_placeholders(text: str, context: dict, prompt: str = "") -> str:
     # 공백을 정규화해 학습 데이터 99%가 한 칸이었다(사용자 지적, 실측 2,873:22).
     # 모델 출력과 무관하게 규정 표기로 정규화한다.
     text = re.sub(r"([^\s])[ \t]*끝\s*\.\s*$", r"\1  끝.", text.rstrip())
+    if "{담당자명}" in text or "{연락처}" in text:  # v9+ 데이터 placeholder
+        pm = re.search(r"담당자?\s*[:은는를]?\s*([가-힣]{2,3})(?=[)\s,.]|$)", prompt or "")
+        text = text.replace("{담당자명}",
+                            pm.group(1) if pm and pm.group(1) not in _NOT_NAMES else "○○○")
+        ph = re.search(r"0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}", prompt or "")
+        text = text.replace("{연락처}", ph.group(0) if ph else "○○○-○○○○-○○○○")
     if re.match(r"^\s*1\.\s*관련", text):
         text = _normalize_gongmun_notation(text)
         text = _verify_related_date(text, prompt)
+    text = _redact_staff_names(text, prompt)
     text = _format_gongmun_layout(text)
     return text
 

@@ -195,6 +195,18 @@ def t_related_date():
     r4 = mod._fill_placeholders(t3, ctx, "행사는 2026. 9. 12.에 해")
     check("관련일자 무근거 → ○", "○○○○. ○. ○." in r4)
 
+    # 각인 실명 유출 방어 (실측: '박은비')
+    doc2 = "라. 문의: 경기통합메신저(교무기획부장 박은비) 또는 010-0000-0000"
+    r5 = mod._redact_staff_names(doc2, "기간제 채용 공문 써줘")
+    check("무근거 실명 → ○○○", "박은비" not in r5 and "교무기획부장 ○○○" in r5)
+    r6 = mod._redact_staff_names(doc2, "담당자는 박은비 선생님이야")
+    check("근거 있는 실명 유지", "박은비" in r6)
+    r7 = mod._redact_staff_names("가. 담당 업무 분장 안내", "")
+    check("일반명사 오탐 없음", r7 == "가. 담당 업무 분장 안내")
+    t8 = "라. 문의: {담당자명}({연락처})"
+    r8 = mod._fill_placeholders(t8, ctx, "담당자는 김철수, 연락처 031-123-4567")
+    check("담당자 placeholder 대입", "김철수" in r8 and "031-123-4567" in r8)
+
 
 # ── 6c. 승인 피드백 로그 (후속 학습 재료) ──
 def t_feedback_log():
