@@ -41,7 +41,9 @@ def _s(v):
     return v if isinstance(v, str) else str(v or "")
 
 
-def iter_candidates(per_org_cap: int):
+def iter_candidates(per_org_cap: int, name_filter: str = ""):
+    """양식성 첨부 후보. name_filter: 파일명 추가 정규식(예: '2026' — 학년도 양식 우선)."""
+    nf_re = re.compile(name_filter) if name_filter else None
     org_count: dict = {}
     for name in ("education_office_detail_INCREMENTAL.jsonl",
                  "education_office_detail.jsonl"):
@@ -67,6 +69,8 @@ def iter_candidates(per_org_cap: int):
                     if not fn.lower().endswith(EXTS):
                         continue
                     if not FORM_RE.search(fn):
+                        continue
+                    if nf_re and not nf_re.search(fn):
                         continue
                     if not a.get("download_params"):
                         continue
@@ -144,6 +148,7 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=500)
     ap.add_argument("--sleep", type=float, default=2.0)
     ap.add_argument("--per-org-cap", type=int, default=PER_ORG_CAP)
+    ap.add_argument("--name-filter", default="", help="파일명 추가 정규식 (예: 2026)")
     ap.add_argument("--dry", action="store_true", help="후보 수만 집계")
     args = ap.parse_args()
 
@@ -151,7 +156,7 @@ def main() -> int:
         from collections import Counter
         c = Counter()
         n = 0
-        for d, df, a in iter_candidates(args.per_org_cap):
+        for d, df, a in iter_candidates(args.per_org_cap, args.name_filter):
             n += 1
             c[a["filename"].rsplit(".", 1)[-1].lower()] += 1
             if n >= 20000:
@@ -166,7 +171,7 @@ def main() -> int:
 
     ok = fail = 0
     with MANIFEST.open("a", encoding="utf-8") as mf:
-        for d, df, a in iter_candidates(args.per_org_cap):
+        for d, df, a in iter_candidates(args.per_org_cap, args.name_filter):
             if ok >= args.limit:
                 break
             reg = d.get("registration_no") or a["file_id"]
