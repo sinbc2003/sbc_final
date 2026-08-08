@@ -163,6 +163,9 @@ def main() -> int:
     for e in examples:
         c = org_num_re.sub("{기관명}-{문서번호}", e["completion"])
         c = suwon_re.sub("{기관명}", c)
+        # 결문 표기 규정 복원: 변환기가 공백을 정규화해 "1부. 끝."(한 칸)으로
+        # 무너진 것을 규정 표기(두 칸)로 — 다음 학습부터 모델이 직접 배운다.
+        c = re.sub(r"([^\s]) ?끝\s*\.\s*$", r"\1  끝.", c.rstrip())
         e["completion"] = c
 
     # 2) 붙임-회피 본문 필터 — 관련·붙임·끝. 제외 실본문이 80자 미만이면

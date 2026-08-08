@@ -32,10 +32,14 @@ def _fill_placeholders(text: str, context: dict) -> str:
     학습됐다(편향 제거) — 학교명은 설정(general.school_name)으로, 관련
     문서번호는 교사가 채울 표시(○○○○)로 바꾼다.
     """
-    if "{기관명}" not in text and "{문서번호}" not in text:
-        return text
-    school = (context.get("config", {}).get("school_name") or "").strip() or "○○학교"
-    return text.replace("{기관명}", school).replace("{문서번호}", "○○○○")
+    if "{기관명}" in text or "{문서번호}" in text:
+        school = (context.get("config", {}).get("school_name") or "").strip() or "○○학교"
+        text = text.replace("{기관명}", school).replace("{문서번호}", "○○○○")
+    # 공문 결문 표기 규정: 마지막 글자 뒤 두 칸 띄고 "끝." — 변환 파이프라인이
+    # 공백을 정규화해 학습 데이터 99%가 한 칸이었다(사용자 지적, 실측 2,873:22).
+    # 모델 출력과 무관하게 규정 표기로 정규화한다.
+    text = re.sub(r"([^\s])[ \t]*끝\s*\.\s*$", r"\1  끝.", text.rstrip())
+    return text
 
 
 def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
