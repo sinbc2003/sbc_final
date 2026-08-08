@@ -33,13 +33,30 @@ def _fill_placeholders(text: str, context: dict) -> str:
     문서번호는 교사가 채울 표시(○○○○)로 바꾼다.
     """
     if "{기관명}" in text or "{문서번호}" in text:
-        school = (context.get("config", {}).get("school_name") or "").strip() or "○○학교"
+        school = (context.get("config", {}).get("school_name") or "").strip() or "(학교명)"
         text = text.replace("{기관명}", school).replace("{문서번호}", "○○○○")
     # 공문 결문 표기 규정: 마지막 글자 뒤 두 칸 띄고 "끝." — 변환 파이프라인이
     # 공백을 정규화해 학습 데이터 99%가 한 칸이었다(사용자 지적, 실측 2,873:22).
     # 모델 출력과 무관하게 규정 표기로 정규화한다.
     text = re.sub(r"([^\s])[ \t]*끝\s*\.\s*$", r"\1  끝.", text.rstrip())
+    if re.match(r"^\s*1\.\s*관련", text):
+        text = _normalize_gongmun_notation(text)
     text = _format_gongmun_layout(text)
+    return text
+
+
+def _normalize_gongmun_notation(text: str) -> str:
+    """공문 표기 규정 정규화 — 경기도교육청 「한 곳에 정리한 공문서 작성법」
+    (행정업무규정 제7조·행안부 편람 근거). 결정론 규정은 코드가 보장한다.
+
+    - 날짜: 연.월.일 → 'YYYY. M. D.' (온점 뒤 1타, 월·일 선행 0 미표기)
+    - 관련 문서번호 뒤 '호' 삭제
+    """
+    def _date(m):
+        return f"{m.group(1)}. {int(m.group(2))}. {int(m.group(3))}."
+    text = re.sub(r"((?:19|20)\d{2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?",
+                  _date, text)
+    text = re.sub(r"\)\s*호(?=[\s,.)]|$)", ")", text, flags=re.M)
     return text
 
 
@@ -52,6 +69,11 @@ _ITEM_LEVELS = [
     (re.compile(r"^[-○·•]\s"), 4),
 ]
 _NBSP = " "  # 마크다운 4칸 코드블록 오인 없이 들여쓰기를 보존
+# 붙임 연속행 정렬(규정: 붙임 뒤 2타) — 한글 폰트에서 전각 공백(U+3000)이
+# 글자와 같은 폭이라 '붙임(전각2)+2타' 들여쓰기로 '1.' 밑에 '2.'가 정확히 온다.
+_ATTACH_INDENT = "　　" + _NBSP * 2
+# 라인이 이 문자로 안 끝나면 다음 비항목 라인은 이어진 문장으로 병합
+_SENT_END = tuple(".:)」]?!…")
 
 
 def _format_gongmun_layout(text: str) -> str:
@@ -75,11 +97,12 @@ def _format_gongmun_layout(text: str) -> str:
             continue
         if s.startswith("붙임"):
             in_attach = True
-            out.append(s)
+            # 규정: 붙임 뒤 2타 ("붙임VV1.V…")
+            out.append("붙임" + _NBSP * 2 + s[2:].lstrip())
             continue
         if in_attach:
             if re.match(r"^\d+\.\s", s):
-                out.append(_NBSP * 5 + s)
+                out.append(_ATTACH_INDENT + s)
                 continue
             in_attach = False
         for pat, depth in _ITEM_LEVELS:
@@ -87,8 +110,18 @@ def _format_gongmun_layout(text: str) -> str:
                 out.append(_NBSP * (2 * depth) + s)
                 break
         else:
-            # 항목 연속 문장(줄바꿈된 본문)은 그대로
-            out.append(s)
+            # 항목 기호 없는 라인: 직전 라인이 문장 중간에서 끊겼으면 병합
+            if (out and out[-1].strip()
+                    and not out[-1].rstrip().endswith(_SENT_END)):
+                out[-1] = out[-1].rstrip() + " " + s
+            else:
+                out.append(s)
+    # 규정: 첨부물이 하나면 숫자 '1.' 미표기
+    attach_lines = [i for i, l in enumerate(out)
+                    if l.startswith("붙임") or l.startswith(_ATTACH_INDENT)]
+    if len(attach_lines) == 1:
+        i = attach_lines[0]
+        out[i] = re.sub("^(붙임" + _NBSP + "{2})1\\.\\s*", r"\1", out[i])
     return "\n".join(out)
 
 
