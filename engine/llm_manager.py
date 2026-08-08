@@ -15,6 +15,25 @@ from typing import Any
 
 from .memory_manager import check_available_memory, get_memory_profile
 
+_GONGMUN_FEWSHOT_CACHE: str | None = None
+
+
+def _load_gongmun_fewshot() -> str:
+    """공문 few-shot 서식 스킬(engine/skills/gongmun_fewshot.md) — API 경로용.
+
+    LoRA를 못 붙이는 API provider에서 공문 서식을 보장하는 대체 수단
+    (§31 실측: 예시 2개면 서식 동급). 파일 없으면 빈 문자열(무해 폴백).
+    """
+    global _GONGMUN_FEWSHOT_CACHE
+    if _GONGMUN_FEWSHOT_CACHE is None:
+        try:
+            _GONGMUN_FEWSHOT_CACHE = (
+                Path(__file__).parent / "skills" / "gongmun_fewshot.md"
+            ).read_text(encoding="utf-8").strip()
+        except OSError:
+            _GONGMUN_FEWSHOT_CACHE = ""
+    return _GONGMUN_FEWSHOT_CACHE
+
 
 class LLMManager:
     """LLM 호출 관리자."""
@@ -118,6 +137,14 @@ class LLMManager:
 
         if provider == "local":
             return self._generate_local(prompt, max_tokens, temperature, lora, json_schema=json_schema)
+
+        # 공문 어댑터 요청이 API provider로 흐르면(LoRA는 로컬 전용) few-shot
+        # 서식 스킬로 대체한다 — 실측(§31): 예시 2개면 서식 동급이고, 어댑터를
+        # 못 붙이는 API 경로에는 이것이 정답. provider별 최적 경로 분담.
+        if lora and "gongmun" in str(lora).lower():
+            fs = _load_gongmun_fewshot()
+            if fs:
+                prompt = fs + "\n\n" + prompt
 
         # API provider: json_schema 소프트 강제 (네이티브 스키마 기능은 미사용)
         if json_schema:
