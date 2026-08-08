@@ -104,6 +104,38 @@ def main():
         fails.append("기본값인데 실행 이벤트 없음")
     print(f"[3] 기본값 즉시실행: result {len(res2)}건, pending {len(pend2)}건")
 
+    # 4) fill-live 승인: preview=True → pending_fill(계획), 승인 실행 → 기록
+    fill_md = ("# 참가 신청서\n\n| 항목 | 내용 |\n| --- | --- |\n"
+               "| 성명 | |\n| 소속 | |\n")
+    form3 = md_to_hwpx(fill_md, "approval_fill", wd)
+    hwp_op("open", str(Path(form3).resolve()))
+    ev3 = sse({"message": "빈칸 채워줘. 성명은 홍길동, 소속은 수학과.",
+               "app_type": "hwp", "model": args.model, "preview": True})
+    pfill = [e for e in ev3 if e.get("type") == "pending_fill"]
+    res3 = [e for e in ev3 if e.get("type") == "result"]
+    if not (pfill and pfill[0].get("count", 0) >= 1):
+        fails.append(f"pending_fill 미수신: {[e.get('type') for e in ev3]}")
+    if res3:
+        fails.append("fill preview인데 액션 실행됨")
+    print(f"[4a] fill preview: pending_fill {pfill[0].get('count') if pfill else 0}개, "
+          f"result {len(res3)}건")
+    if pfill:
+        entries = pfill[0].get("entries", [])
+        plan = {e["id"]: e["value"] for e in entries}
+        r = requests.post(f"{BASE}/api/hwp/fill-live/execute",
+                          json={"plan": plan, "path": pfill[0].get("file", "")},
+                          timeout=300)
+        data = r.json()
+        out_file = data.get("file", "")
+        out_texts = read_doc_texts(out_file) if out_file else []
+        content_ok = any(("홍길동" in t or "수학과" in t) for t in out_texts)
+        print(f"[4b] fill 승인 실행: ok={data.get('ok')}, filled={data.get('filled')}, "
+              f"완성파일 내용 {'OK' if content_ok else 'FAIL'}")
+        if not data.get("ok"):
+            fails.append(f"fill-live/execute 실패: {data.get('error')}")
+        if not content_ok:
+            fails.append("승인 실행 후 완성 파일에 값 미반영")
+
     print(f"\n{'✅ 승인 UX E2E 통과' if not fails else '❌ FAIL: ' + '; '.join(fails)}")
     return 0 if not fails else 1
 

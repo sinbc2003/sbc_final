@@ -182,7 +182,20 @@ async def chat_live(req: LiveChatRequest):
             provider, model_name = (req.model or "auto"), ""
         fill = await run_fill_live(
             instruction=req.message, provider=provider, model=model_name,
+            plan_only=req.preview,
         )
+        if fill.get("pending"):
+            plan = fill.get("plan") or {}
+            labels = fill.get("labels") or {}
+            entries = [{"id": k, "label": labels.get(k, k), "value": v}
+                       for k, v in plan.items()]
+            return {
+                "reply": f"빈칸 {len(entries)}개의 채움 계획을 세웠습니다. 검토 후 반영해 주세요.",
+                "actions": None, "results": None, "summary": None,
+                "preview": True, "fill_live": True,
+                "pending_fill": entries, "file": fill.get("file", ""),
+                "logs": fill.get("logs"),
+            }
         if fill.get("ok"):
             filled = fill.get("filled", 0)
             file = fill.get("file", "")
@@ -284,7 +297,19 @@ async def chat_live_stream(req: StreamChatRequest):
                 f_provider, f_model = (req.model or "auto"), ""
             fill = await run_fill_live(
                 instruction=req.message, provider=f_provider, model=f_model,
+                plan_only=req.preview,
             )
+            if fill.get("pending"):
+                # 승인 UX: 계획을 검토 패널로 — 승인 시 /api/hwp/fill-live/execute
+                plan = fill.get("plan") or {}
+                labels = fill.get("labels") or {}
+                entries = [{"id": k, "label": labels.get(k, k), "value": v}
+                           for k, v in plan.items()]
+                reply = f"빈칸 {len(entries)}개의 채움 계획을 세웠습니다. 검토 후 반영해 주세요."
+                yield f"data: {json.dumps({'type': 'reply_done', 'content': reply}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'pending_fill', 'file': fill.get('file', ''), 'entries': entries, 'count': len(entries)}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'summary': f'{len(entries)}개 채움 승인 대기'}, ensure_ascii=False)}\n\n"
+                return
             if fill.get("ok"):
                 filled = fill.get("filled", 0)
                 reply = f"빈칸 {filled}개를 문서에 채웠습니다."

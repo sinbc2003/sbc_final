@@ -168,11 +168,14 @@ async def run_fill_live(
     model: str = "",
     scan_timeout: int = 30,
     logs: list | None = None,
+    plan_only: bool = False,
 ) -> dict:
     """gemma 실시간 문서 채우기 오케스트레이션 (fill-live 엔드포인트·채팅 공용).
 
     흐름: [COM] 문서 확보+InitScan → [스레드풀] gemma 배치 결정(라벨그리드+enum)
     → [COM] 그리드↔스캔 정렬(텍스트 검산)→set_pos 라이브 기록→'_완성' 저장.
+    plan_only=True: 배치 결정까지만 하고 기록 없이 반환(승인 UX) —
+    승인 시 execute_fill_live(plan, path)가 재스캔 후 기록한다.
     """
     import asyncio, concurrent.futures
     from pathlib import Path as _P
@@ -222,7 +225,23 @@ async def run_fill_live(
     if not fill_data:
         return {"ok": False, "error": "채울 항목 없음 (빈칸 미검출 또는 LLM 미결정)", "logs": logs}
 
+    # ── 승인 UX: 계획만 반환 (기록 없음) ──
+    if plan_only:
+        return {
+            "ok": True, "pending": True, "file": doc_path,
+            "plan": fill_data, "labels": plan.get("labels", {}),
+            "logs": logs,
+        }
+
     # ── 3) COM: 정렬 + 라이브 기록 + 저장 ──
+    result = await _write_fill_live(doc_path, fill_data, elements, log)
+    result["plan"] = fill_data
+    result["logs"] = logs
+    return result
+
+
+async def _write_fill_live(doc_path: str, fill_data: dict, elements, log) -> dict:
+    """정렬+라이브 기록+저장 (run_fill_live 3단계 — 승인 실행과 공유)."""
     out_dir = deps.settings_mgr.get("general", "output_dir", "")
     from engine.hwp.grid_live import fill_grid_live
     result = await deps.run_on_com(
@@ -236,9 +255,53 @@ async def run_fill_live(
         "verified": result.get("verified", 0),
         "missing": result.get("missing", []),
         "align_stats": result["stats"],
-        "plan": fill_data,
-        "logs": logs,
     }
+
+
+async def execute_fill_live(fill_data: dict, path: str = "",
+                            scan_timeout: int = 30, logs: list | None = None) -> dict:
+    """승인된 채움 계획({셀ID:값}) 실행 — 재스캔 후 기록.
+
+    계획 시점과 문서가 달라졌으면 fill_grid_live의 텍스트 검산이
+    어긋난 셀을 skipped로 떨어뜨린다(무단 덮어쓰기 없음).
+    """
+    from pathlib import Path as _P
+
+    logs = logs if logs is not None else []
+    log = logs.append
+
+    if not fill_data:
+        return {"ok": False, "error": "채움 계획이 비어 있음", "logs": logs}
+
+    def _resolve_path():
+        import pythoncom
+        pythoncom.CoInitialize()
+        if path:
+            return path
+        from pyhwpx import Hwp
+        hwp = Hwp(visible=True)
+        try:
+            return hwp.XHwpDocuments.Active_XHwpDocument.FullName or ""
+        except Exception:
+            return ""
+
+    doc_path = await deps.run_on_com(_resolve_path)
+    if not doc_path:
+        return {"ok": False, "error": "대상 문서 없음", "logs": logs}
+    if _P(doc_path).suffix.lower() != ".hwpx":
+        return {"ok": False, "error": f"라이브 채우기는 .hwpx만 지원: {_P(doc_path).name}", "logs": logs}
+
+    def _scan():
+        from engine.form_assist import scan_hwp_structure
+        return scan_hwp_structure(doc_path, log, timeout=min(max(scan_timeout, 5), 120))
+
+    elements = await deps.run_on_com(_scan)
+    if not elements:
+        return {"ok": False, "error": "문서 스캔 실패", "logs": logs}
+
+    result = await _write_fill_live(doc_path, fill_data, elements, log)
+    result["logs"] = logs
+    return result
 
 
 @router.post("/api/hwp/fill-live")
@@ -248,6 +311,19 @@ async def hwp_fill_live(req: FillLiveRequest):
         instruction=req.instruction, path=req.path, context=req.context,
         provider=req.provider, model=req.model, scan_timeout=req.scan_timeout,
     )
+
+
+class FillLiveExecuteRequest(BaseModel):
+    plan: dict            # {셀ID: 값} — 승인된 채움 계획
+    path: str = ""        # 비우면 한/글 활성 문서
+    scan_timeout: int = 30
+
+
+@router.post("/api/hwp/fill-live/execute")
+async def hwp_fill_live_execute(req: FillLiveExecuteRequest):
+    """승인 UX confirm — pending_fill 계획을 재스캔 후 기록."""
+    return await execute_fill_live(req.plan, path=req.path,
+                                   scan_timeout=req.scan_timeout)
 
 
 @router.get("/api/hwp/documents")

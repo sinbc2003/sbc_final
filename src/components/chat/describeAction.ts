@@ -2,6 +2,7 @@
 export function describeAction(act: { action: string; params: any }): string {
   const p = act.params || {};
   switch (act.action) {
+    case "fill_cell": return `${p.label || p.id} ← "${String(p.value ?? "").slice(0, 30)}"`;
     case "set_cell": return `셀 ${p.cell} = "${p.value}"`;
     case "set_cells": return `${Object.keys(p.cells || {}).length}개 셀 설정`;
     case "replace_text": case "find_and_replace_all": return `"${p.find || p.old_text || ""}" → "${p.replace || p.new_text || ""}"`;

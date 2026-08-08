@@ -1148,7 +1148,13 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
   - 프론트(ChatMode): `approveMode` 상태(기본 **켬**, localStorage `tf_approve_mode`), 요청에 `preview` 전달, `pending_actions` 수신 → 검토 패널(전체선택 기본). 라이브 제어 바에 "편집 전 확인 ON/OFF" 토글.
   - 실행 순서 일치: 스트림에서 reorder 후 pending → execute-batch가 재reorder(멱등)라 승인 시점 실행 순서 동일.
 - **검증**: tests/test_approval.py 신설(E2E, 엔진+llama+한/글, 미충족 시 skip) — ① preview: pending 1·result 0·**문서 불변** ② 승인 실행 1/1 성공 ③ preview 미지정: 기존 즉시실행 보존. 프론트 빌드 통과, 오프라인 117 PASS.
-- **잔여**: fill-live(그리드 채움) 경로는 아직 즉시 기록 — 채움 계획({셀ID:값}+라벨)을 같은 패널로 승인받는 확장 · 액션 diff 미리보기 고도화(현재는 describeAction 요약).
+- **잔여**: ~~fill-live 승인 확장~~(→ §33b 완료) · 액션 diff 미리보기 고도화(현재는 describeAction 요약).
+
+### §33b fill-live 승인 확장 ✅ (2026-08-08 밤)
+- **배선**: `run_fill_live(plan_only=True)` — 배치 결정까지만(스캔+gemma) 하고 `{pending, plan, labels, file}` 반환. 승인 시 신설 `POST /api/hwp/fill-live/execute`({plan, path})가 **재스캔 후** `fill_grid_live` 기록 — 계획~승인 사이 문서가 바뀐 셀은 텍스트 검산이 skipped로 떨굼(무단 덮어쓰기 없음). `plan_hwpx_grid_fill`이 labels({셀ID:라벨}) 동봉.
+- **스트림/비스트림**: fill_intent+preview → `pending_fill` 이벤트({file, entries:[{id,label,value}]}). 비스트림 `/api/chat/live`도 preview 시 pending_fill 반환(기존 즉시기록과 preview 의미 불일치 해소).
+- **프론트**: pendingKind("actions"|"fill") 분기 — fill이면 같은 ActionReviewPanel에 `라벨 ← "값"`(describeAction fill_cell)로 표시, 승인 시 fill-live/execute 호출·skipped 안내.
+- **검증**: test_approval [4] 확장 — fill preview: pending_fill 2·result 0, 승인 실행 filled=2·완성파일 값 반영 OK. 전체 E2E 4축 통과, 오프라인 117 PASS, 프론트 빌드 OK. ⚠️ 이 변경은 번들 재빌드 전 — 다음 배포 전 §34 체인 재실행 필요.
 
 ### §34 번들 재빌드 + frozen 노드 구멍 수정 ✅ (2026-08-08 밤)
 - **재빌드**: 오늘 밤 변경분(§32 ①② 표 감지 +134%·부분 슬롯, §33 승인 UX, 공문 few-shot·표기 후처리) 전부 반영해 NSIS 92.7MB + 포터블 3.56GB 재생성. 체인: stage_bundle --full → pyinstaller → tauri build → make_portable (dist rmtree AV 잠금 2회 — PowerShell 재시도 삭제로 통과, 기존 함정 ①③ 재확인).

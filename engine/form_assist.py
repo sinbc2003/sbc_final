@@ -369,7 +369,9 @@ def plan_hwpx_grid_fill(
 
     fill_data = _plan_grid_fill(grid_doc, grid_fields, context_text, instruction,
                                 "", llm_provider, llm_model, llm_config or {}, _log)
-    return {"fill_data": fill_data, "grid_doc": grid_doc, "blank_ids": blank_ids}
+    labels = {f["id"]: f.get("label", "") for f in grid_fields}
+    return {"fill_data": fill_data, "grid_doc": grid_doc, "blank_ids": blank_ids,
+            "labels": labels}
 
 
 # ── 라이브 HWP 채우기 ──

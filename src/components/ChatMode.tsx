@@ -27,6 +27,9 @@ export function ChatMode() {
   const [selectedDocIndex, setSelectedDocIndex] = useState<Record<string, number>>({});
   const [docDropdownOpen, setDocDropdownOpen] = useState(false);
   const [pendingActions, setPendingActions] = useState<Array<{action: string; params: any; checked: boolean}> | null>(null);
+  // 검토 패널의 종류: 라이브 액션(execute-batch) vs 채움 계획(fill-live/execute)
+  const [pendingKind, setPendingKind] = useState<"actions" | "fill">("actions");
+  const [pendingFile, setPendingFile] = useState<string>("");
   // 편집 전 확인 (승인 UX) — 기본 켬, localStorage 유지
   const [approveMode, setApproveMode] = useState(() => localStorage.getItem("tf_approve_mode") !== "0");
   const toggleApproveMode = useCallback(() => {
@@ -191,27 +194,47 @@ export function ChatMode() {
     if (selected.length === 0) { setPendingActions(null); return; }
     setSending(true);
     try {
-      const res = await fetch(apiUrl("/api/live/execute-batch"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          app_type: liveApp,
-          actions: selected.map((a) => ({ action: a.action, params: a.params })),
-        }),
-      });
-      const data = await res.json();
-      addMessage({
-        role: "assistant",
-        content: `${selected.length}개 작업 반영 완료`,
-        liveResults: data.results,
-        liveSummary: data.summary,
-      });
+      if (pendingKind === "fill") {
+        // 채움 계획 승인 → 재스캔 후 라이브 기록 (문서가 바뀐 셀은 skipped)
+        const plan: Record<string, string> = {};
+        for (const a of selected) plan[a.params.id] = a.params.value;
+        const res = await fetch(apiUrl("/api/hwp/fill-live/execute"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan, path: pendingFile }),
+        });
+        const data = await res.json();
+        const skipped = (data.skipped || []).length;
+        addMessage({
+          role: "assistant",
+          content: data.ok
+            ? `빈칸 ${data.filled}개 반영 완료` + (skipped ? ` (${skipped}개는 문서 변경으로 건너뜀)` : "")
+              + (data.file ? `\n완성 파일: \`${data.file.split(/[\\/]/).pop()}\`` : "")
+            : `채움 실패: ${data.error || "알 수 없는 오류"}`,
+        });
+      } else {
+        const res = await fetch(apiUrl("/api/live/execute-batch"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            app_type: liveApp,
+            actions: selected.map((a) => ({ action: a.action, params: a.params })),
+          }),
+        });
+        const data = await res.json();
+        addMessage({
+          role: "assistant",
+          content: `${selected.length}개 작업 반영 완료`,
+          liveResults: data.results,
+          liveSummary: data.summary,
+        });
+      }
     } catch {
       addMessage({ role: "assistant", content: "실행 중 오류가 발생했습니다." });
     }
     setPendingActions(null);
     setSending(false);
-  }, [pendingActions, liveApp, addMessage]);
+  }, [pendingActions, pendingKind, pendingFile, liveApp, addMessage]);
 
   // HWP 문서 전환
   const switchDocument = useCallback(async (app: string, docIndex: number) => {
@@ -357,9 +380,21 @@ export function ChatMode() {
                   }
                 } else if (ev.type === "pending_actions") {
                   // 승인 UX: 실행 전 검토 패널로 (기본 전체선택)
+                  setPendingKind("actions");
                   setPendingActions(
                     (ev.actions || []).map((a: any) => ({
                       action: a.action || "", params: a.params || {}, checked: true,
+                    }))
+                  );
+                } else if (ev.type === "pending_fill") {
+                  // 승인 UX: 채움 계획을 같은 패널로 (승인 시 fill-live/execute)
+                  setPendingKind("fill");
+                  setPendingFile(ev.file || "");
+                  setPendingActions(
+                    (ev.entries || []).map((e: any) => ({
+                      action: "fill_cell",
+                      params: { id: e.id, label: e.label, value: e.value },
+                      checked: true,
                     }))
                   );
                 } else if (ev.type === "actions") {
