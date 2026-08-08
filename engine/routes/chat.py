@@ -40,6 +40,10 @@ class StreamChatRequest(BaseModel):
     doc_index: int | None = None
     model: str | None = None
     design_skill: str | None = None
+    # 승인 UX: True면 액션을 실행하지 않고 pending_actions 이벤트로 반환 —
+    # 프론트 검토 패널에서 승인 시 /api/live/execute-batch로 실행 (비스트림
+    # /api/chat/live의 preview와 같은 의미)
+    preview: bool = False
 
 
 # ── 일반 채팅 ──
@@ -366,6 +370,13 @@ async def chat_live_stream(req: StreamChatRequest):
         elif req.app_type == "hwp":
             from engine.live_controller import LiveController
             actions = LiveController.reorder_hwp_block_actions(actions)
+
+        # 승인 모드: 실행하지 않고 검토 패널로 — 반영 순서는 위 reorder와
+        # execute-batch의 재reorder가 같아 실행 시점에도 동일하다.
+        if req.preview:
+            yield f"data: {json.dumps({'type': 'pending_actions', 'actions': actions, 'count': len(actions)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'summary': f'{len(actions)}개 작업 승인 대기'}, ensure_ascii=False)}\n\n"
+            return
 
         yield f"data: {json.dumps({'type': 'actions', 'count': len(actions)}, ensure_ascii=False)}\n\n"
 

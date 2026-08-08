@@ -1141,6 +1141,15 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **검증**: 48종 전수 부분 슬롯 **+79필드/11문서**(빈셀 3,437과 별도), 실문서 왕복 4/4 라벨보존('소 속 :'→'소 속 : 값', '□ 특정직( )'→'(값)'), 오프라인 **117 PASS**(부분 슬롯 10케이스 신설), 벤치 무손상(재인식 495/495·왕복 1126/1126·마커 1126/1126).
 - **잔여**: 견본혼합형(○○과·홍길동 교체 — ○◯〇 한정 보수 규칙 or 편집 경로) · xlsx 채움 하드벤치 · hwp 변환 자동화.
 
+### §33 승인 UX — 편집 전 확인 ✅ (2026-08-08)
+- **발견**: 프론트에 ActionReviewPanel·pendingActions·execute-batch 핸들러가 **이미 완성돼 있었으나 고아 상태** — 스트림(`/api/chat/live/stream`)이 액션을 즉시 실행해 패널이 열릴 일이 없었음. confirm API도 기존 `/api/live/execute-batch`가 그 자체.
+- **배선**(3점):
+  - 백엔드: `StreamChatRequest.preview: bool = False`(비스트림 `/api/chat/live`의 preview와 동일 의미) — True면 reorder까지 마친 액션을 `pending_actions` 이벤트로 반환하고 실행 없이 종료. 기본 False = 기존 호출(test_edit/test_e2e) 무영향.
+  - 프론트(ChatMode): `approveMode` 상태(기본 **켬**, localStorage `tf_approve_mode`), 요청에 `preview` 전달, `pending_actions` 수신 → 검토 패널(전체선택 기본). 라이브 제어 바에 "편집 전 확인 ON/OFF" 토글.
+  - 실행 순서 일치: 스트림에서 reorder 후 pending → execute-batch가 재reorder(멱등)라 승인 시점 실행 순서 동일.
+- **검증**: tests/test_approval.py 신설(E2E, 엔진+llama+한/글, 미충족 시 skip) — ① preview: pending 1·result 0·**문서 불변** ② 승인 실행 1/1 성공 ③ preview 미지정: 기존 즉시실행 보존. 프론트 빌드 통과, 오프라인 117 PASS.
+- **잔여**: fill-live(그리드 채움) 경로는 아직 즉시 기록 — 채움 계획({셀ID:값}+라벨)을 같은 패널로 승인받는 확장 · 액션 diff 미리보기 고도화(현재는 describeAction 요약).
+
 ### ⏭️ §31 다음 트랙 계획 (v6 완료 후 — 사용자 8/8 지시 반영)
 1. **표 인식·채우기 고도화** ("문서 제어를 inline AI보다 잘 되게 — 표 인식·칸 채우기 등등"):
    - 하드 벤치 확장: 현 벤치(채용점수표 8표)는 100% 포화 — **중첩표·비정형 양식·표갇힘형(방금 1,375건 확보!)으로 난이도 상승판** 구축 → 실패 사례 발굴 → hwpx_grid/캘리브레이션 개선 사이클.

@@ -27,6 +27,14 @@ export function ChatMode() {
   const [selectedDocIndex, setSelectedDocIndex] = useState<Record<string, number>>({});
   const [docDropdownOpen, setDocDropdownOpen] = useState(false);
   const [pendingActions, setPendingActions] = useState<Array<{action: string; params: any; checked: boolean}> | null>(null);
+  // 편집 전 확인 (승인 UX) — 기본 켬, localStorage 유지
+  const [approveMode, setApproveMode] = useState(() => localStorage.getItem("tf_approve_mode") !== "0");
+  const toggleApproveMode = useCallback(() => {
+    setApproveMode((prev) => {
+      localStorage.setItem("tf_approve_mode", prev ? "0" : "1");
+      return !prev;
+    });
+  }, []);
   // 모델 선택
   const [models, setModels] = useState<{id: string; name: string; provider: string; available?: boolean}[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("openai/gpt-4.1-mini");
@@ -297,6 +305,7 @@ export function ChatMode() {
             doc_index: liveApp === "hwp" ? (selectedDocIndex["hwp"] ?? 0) : undefined,
             model: selectedModel,
             design_skill: selectedDesign !== "default" ? selectedDesign : undefined,
+            preview: approveMode,
           }),
         });
 
@@ -346,6 +355,13 @@ export function ChatMode() {
                     replyMsgId = crypto.randomUUID();
                     addMessage({ role: "assistant", content: ev.content || "작업을 실행합니다...", id: replyMsgId });
                   }
+                } else if (ev.type === "pending_actions") {
+                  // 승인 UX: 실행 전 검토 패널로 (기본 전체선택)
+                  setPendingActions(
+                    (ev.actions || []).map((a: any) => ({
+                      action: a.action || "", params: a.params || {}, checked: true,
+                    }))
+                  );
                 } else if (ev.type === "actions") {
                   // 액션 실행 시작 알림
                   if (replyMsgId) {
@@ -575,6 +591,21 @@ export function ChatMode() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* 편집 전 확인 토글 (승인 UX) */}
+            {liveMode && (
+              <button
+                onClick={toggleApproveMode}
+                title="켜면 AI가 문서를 바로 고치지 않고, 수정 내역을 먼저 보여주고 승인받습니다"
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all border
+                  ${approveMode
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                    : "bg-gray-50 text-gray-400 border-gray-200 hover:border-gray-300"}`}
+              >
+                <FileEdit size={11} />
+                편집 전 확인{approveMode ? " ON" : " OFF"}
+              </button>
             )}
 
             {/* 연결 상태 */}
