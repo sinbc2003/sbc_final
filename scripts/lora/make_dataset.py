@@ -168,6 +168,27 @@ def main() -> int:
         c = re.sub(r"([^\s]) ?끝\s*\.\s*$", r"\1  끝.", c.rstrip())
         e["completion"] = c
 
+    # 1.5) 관련 블록 1줄 정리(v7, §31) — 다항 관련(가.나.다. 나열, 16% 실측)이
+    #      생성 시 관련 라인 과잉(v5 6개→v6 3개 잔존)의 학습 원인. 실제 기안
+    #      관행대로 첫 참조 1줄로 축약해 "관련은 한 줄"을 학습시킨다.
+    rel_block_re = re.compile(r"^1\.\s*관련.*?(?=\n\s*2\.\s)", re.S)
+    ref_re = re.compile(r"\{기관명\}-\{문서번호\}(\([^)]*\))?")
+    n_rel = 0
+    for e in examples:
+        c = e["completion"]
+        m = rel_block_re.match(c)
+        if not m:
+            continue
+        block = m.group(0)
+        refs = ref_re.findall(block)
+        if len(refs) < 2:
+            continue
+        first = ref_re.search(block)
+        one_line = f"1. 관련: {first.group(0)}"
+        e["completion"] = one_line + c[m.end():]
+        n_rel += 1
+    print(f"v7: 관련 다항→1줄 축약 {n_rel}쌍")
+
     # 2) 붙임-회피 본문 필터 — 관련·붙임·끝. 제외 실본문이 80자 미만이면
     #    "붙임과 같이 …합니다" 껍데기(전국 코퍼스 습관). 본문 생성 위축 원인.
     def _body_len(c: str) -> int:
