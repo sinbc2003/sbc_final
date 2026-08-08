@@ -123,6 +123,12 @@ def stage_models() -> bool:
         if not dest.exists() or dest.stat().st_size != src.stat().st_size:
             print(f"copy {src.name} ({src.stat().st_size/1e9:.2f}GB)...")
             shutil.copy2(src, dest)
+    # 어댑터 버전 교체 시 구버전 잔존 방지 — 지정본 외 gguf 제거
+    # (bundle/은 누적 디렉토리라 v8→v9 교체 때 v8이 NSIS까지 실려간 실측)
+    for f in loras.glob("*.gguf"):
+        if f.name != LORA.name:
+            f.unlink()
+            print(f"구 어댑터 제거: {f.name}")
     return ok
 
 
