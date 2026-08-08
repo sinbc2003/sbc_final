@@ -25,7 +25,31 @@ def _render_template(template: str, variables: dict) -> str:
     return re.sub(r"\{\{(.+?)\}\}", replacer, template)
 
 
-def _fill_placeholders(text: str, context: dict) -> str:
+def _verify_related_date(text: str, prompt: str) -> str:
+    """관련 조항의 날짜는 모델이 알 수 없는 값 — 사용자 입력에 근거 없으면 ○ 표기.
+
+    사용자 프롬프트의 날짜는 대개 행사 일시(관련 문서 날짜가 아님)라
+    자동 대입하지 않는다. 모델이 낸 날짜가 프롬프트에 실재할 때만 유지.
+    """
+    def _keep_or_blank(m):
+        ymd = re.match(r"(\d{4})\D+(\d{1,2})\D+(\d{1,2})", m.group(1))
+        if ymd:
+            y, mo, d = ymd.groups()
+            pat = rf"{y}\s*[.\-/년]\s*0?{int(mo)}\s*[.\-/월]\s*0?{int(d)}"
+            if re.search(pat, prompt or ""):
+                return m.group(0)
+        return "(○○○○. ○. ○.)"
+
+    lines = text.split("\n")
+    for i, ln in enumerate(lines):
+        if re.match(r"^\s*1[.\s]*관련", ln):
+            lines[i] = re.sub(
+                r"\(\s*((?:19|20)\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\s*\.?)\s*\)",
+                _keep_or_blank, ln)
+    return "\n".join(lines)
+
+
+def _fill_placeholders(text: str, context: dict, prompt: str = "") -> str:
     """LoRA v4가 학습한 {기관명}/{문서번호} placeholder 치환.
 
     어댑터가 특정 학교명·관련번호를 각인하는 대신 placeholder를 내도록
@@ -35,12 +59,20 @@ def _fill_placeholders(text: str, context: dict) -> str:
     if "{기관명}" in text or "{문서번호}" in text:
         school = (context.get("config", {}).get("school_name") or "").strip() or "(학교명)"
         text = text.replace("{기관명}", school).replace("{문서번호}", "○○○○")
+    if "{관련일자}" in text:  # v9+ 데이터가 학습할 placeholder (사전 배선)
+        rel = re.search(r"관련[^\n]{0,60}?((?:19|20)\d{2})\D{1,2}(\d{1,2})\D{1,2}(\d{1,2})",
+                        prompt or "")
+        text = text.replace(
+            "{관련일자}",
+            f"{rel.group(1)}. {int(rel.group(2))}. {int(rel.group(3))}." if rel
+            else "○○○○. ○. ○.")
     # 공문 결문 표기 규정: 마지막 글자 뒤 두 칸 띄고 "끝." — 변환 파이프라인이
     # 공백을 정규화해 학습 데이터 99%가 한 칸이었다(사용자 지적, 실측 2,873:22).
     # 모델 출력과 무관하게 규정 표기로 정규화한다.
     text = re.sub(r"([^\s])[ \t]*끝\s*\.\s*$", r"\1  끝.", text.rstrip())
     if re.match(r"^\s*1\.\s*관련", text):
         text = _normalize_gongmun_notation(text)
+        text = _verify_related_date(text, prompt)
     text = _format_gongmun_layout(text)
     return text
 
@@ -287,10 +319,10 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
                         pass
                 context["progress"](1.0)
                 context["log"](f"완료 ({len(combined)}자, {len(chunks)}개 청크 처리)")
-                return {"출력텍스트": _fill_placeholders(combined, context)}
+                return {"출력텍스트": _fill_placeholders(combined, context, prompt)}
             elif results:
                 context["progress"](1.0)
-                return {"출력텍스트": _fill_placeholders(results[0], context)}
+                return {"출력텍스트": _fill_placeholders(results[0], context, prompt)}
 
     # ── 일반 처리 (짧은 문서) ─────────────────────
     context["log"](f"처리 중... ({len(prompt)}자)")
@@ -307,4 +339,4 @@ def execute(inputs: dict, params: dict, context: dict) -> dict:
     context["progress"](1.0)
     context["log"](f"완료 ({len(result)}자)")
 
-    return {"출력텍스트": _fill_placeholders(result, context)}
+    return {"출력텍스트": _fill_placeholders(result, context, prompt)}

@@ -171,6 +171,11 @@ def main() -> int:
         c = re.sub(r"((?:19|20)\d{2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?",
                    lambda m: f"{m.group(1)}. {int(m.group(2))}. {int(m.group(3))}.", c)
         c = re.sub(r"\)\s*호(?=[\s,.)]|$)", ")", c, flags=re.M)
+        # 관련 문서의 날짜도 placeholder(v9) — 모델이 알 수 없는 값이라 환각
+        # 필연(사용자 실측 지적). {관련일자}로 학습 → llm_generate 후처리가
+        # 사용자 제공값 또는 ○ 표기로 치환.
+        c = re.sub(r"(\{기관명\}-\{문서번호\})\(\s*(?:19|20)\d{2}[.\s]+\d{1,2}[.\s]+\d{1,2}[.\s]*\)",
+                   r"\1({관련일자})", c)
         e["completion"] = c
 
     # 1.3) HTML 표 완성문 드롭(v8) — kordoc이 hwp 표를 HTML로 내보낸 잔재가

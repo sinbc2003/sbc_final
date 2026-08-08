@@ -170,6 +170,32 @@ def t_partial_slots():
     check("빈 이웃이 슬롯", any(f["is_empty"] for f in f2))
 
 
+# ── 6b2. 관련일자 환각 방어 (llm_generate 후처리) ──
+def t_related_date():
+    print("[관련일자 방어]")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "llm_gen_node", ROOT / "nodes" / "llm_generate" / "main.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    doc = "1. 관련: (학교명)-○○○○(2024. 10. 7.)\n2. 본문 일시: 2026. 9. 12.(토)"
+    # 근거 없음 → 관련 날짜만 ○ 표기, 본문 날짜는 보존
+    r = mod._verify_related_date(doc, "학부모 연수 공문 써줘")
+    check("무근거 관련날짜 → ○", "(○○○○. ○. ○.)" in r.split("\n")[0])
+    check("본문 날짜 보존", "2026. 9. 12." in r)
+    # 프롬프트에 같은 날짜 실재 → 유지 (표기 변형 포함)
+    r2 = mod._verify_related_date(doc, "관련 문서는 2024년 10월 7일자야")
+    check("근거 있는 관련날짜 유지", "(2024. 10. 7.)" in r2)
+    # {관련일자} placeholder(v9): 관련 문맥의 날짜만 대입, 아니면 ○
+    ctx = {"config": {}}
+    t3 = "1. 관련: {기관명}-{문서번호}({관련일자})\n2. 안내합니다.  끝."
+    r3 = mod._fill_placeholders(t3, ctx, "관련: 교육청-123(2026. 5. 2.) 참고")
+    check("관련일자 근거 대입", "(2026. 5. 2.)" in r3)
+    r4 = mod._fill_placeholders(t3, ctx, "행사는 2026. 9. 12.에 해")
+    check("관련일자 무근거 → ○", "○○○○. ○. ○." in r4)
+
+
 # ── 6c. 승인 피드백 로그 (후속 학습 재료) ──
 def t_feedback_log():
     print("[feedback log]")
@@ -611,7 +637,8 @@ def t_presets():
 
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
-               t_grid_roundtrip, t_partial_slots, t_feedback_log, t_verify_retry,
+               t_grid_roundtrip, t_partial_slots, t_related_date, t_feedback_log,
+               t_verify_retry,
                t_chunking, t_cancel, t_workflow_envelope,
                t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift):
         fn()
