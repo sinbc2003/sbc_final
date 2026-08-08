@@ -118,7 +118,14 @@ class TableGrid:
                 h = max(h, r + 1, covered_until)
             else:
                 break
-        return max(1, min(h, self.row_cnt))
+        h = max(1, min(h, self.row_cnt))
+        # 라벨-값 양식(신청서류) 병리: 병합-연속 휴리스틱이 전 행을 헤더로
+        # 삼켜 빈칸 감지가 0이 된다(§32 실측: 11/11행·19/19행). 5행 이상
+        # 표에서 전 행이 헤더로 판정되면 데이터 그리드가 아니므로 1로 폴백
+        # — 그리드형(채용점수표류)은 헤더가 전 행일 수 없어 벤치 무영향.
+        if self.row_cnt >= 5 and h >= self.row_cnt:
+            return 1
+        return h
 
     def col_header(self, r: int, c: int, max_items: int = 3) -> str:
         """열 c의 헤더 경로 (헤더 구간에서 위→아래)."""
