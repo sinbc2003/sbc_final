@@ -1150,6 +1150,11 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **검증**: tests/test_approval.py 신설(E2E, 엔진+llama+한/글, 미충족 시 skip) — ① preview: pending 1·result 0·**문서 불변** ② 승인 실행 1/1 성공 ③ preview 미지정: 기존 즉시실행 보존. 프론트 빌드 통과, 오프라인 117 PASS.
 - **잔여**: fill-live(그리드 채움) 경로는 아직 즉시 기록 — 채움 계획({셀ID:값}+라벨)을 같은 패널로 승인받는 확장 · 액션 diff 미리보기 고도화(현재는 describeAction 요약).
 
+### §34 번들 재빌드 + frozen 노드 구멍 수정 ✅ (2026-08-08 밤)
+- **재빌드**: 오늘 밤 변경분(§32 ①② 표 감지 +134%·부분 슬롯, §33 승인 UX, 공문 few-shot·표기 후처리) 전부 반영해 NSIS 92.7MB + 포터블 3.56GB 재생성. 체인: stage_bundle --full → pyinstaller → tauri build → make_portable (dist rmtree AV 잠금 2회 — PowerShell 재시도 삭제로 통과, 기존 함정 ①③ 재확인).
+- **frozen 구멍 발견(스모크가 잡음)**: 포터블 health nodes **29/31** — `column_mapping`·`save_xlsx` 노드가 `No module named 'engine.table_utils'`로 로드 실패. 원인: PYZ 실측 engine.* 56/57 중 **table_utils만 그래프 탈락**(collect_submodules는 57개 반환하나 Analysis에서 이 모듈만 누락 — 7월 모듈이라 **지금까지의 모든 frozen 빌드에 있던 기존 결함**, xlsx 저장·열매핑이 배포판에서 죽어 있었음). 스펙에 `"engine.table_utils"` 명시 hiddenimport로 고정.
+- **최종 스모크**: 포터블 엔진 단독 기동 — health **nodes 31**, 노드 로드 실패 0건, openapi에 StreamChatRequest.**preview** 필드 확인(§33 코드 반영 증빙). ⚠️ frozen 검증 시 health의 nodes 수를 스테이징 수와 대조할 것 — 이번처럼 조용한 노드 탈락을 잡는 가장 싼 게이트.
+
 ### ⏭️ §31 다음 트랙 계획 (v6 완료 후 — 사용자 8/8 지시 반영)
 1. **표 인식·채우기 고도화** ("문서 제어를 inline AI보다 잘 되게 — 표 인식·칸 채우기 등등"):
    - 하드 벤치 확장: 현 벤치(채용점수표 8표)는 100% 포화 — **중첩표·비정형 양식·표갇힘형(방금 1,375건 확보!)으로 난이도 상승판** 구축 → 실패 사례 발굴 → hwpx_grid/캘리브레이션 개선 사이클.

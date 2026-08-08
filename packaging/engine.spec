@@ -46,6 +46,10 @@ hiddenimports = (
         "win32gui", "win32con", "win32process", "win32api",
         # 기타 런타임 지연 import
         "engine.paths",
+        # collect_submodules("engine")가 이 모듈만 그래프에서 탈락시킨 실측
+        # (§34: 56/57 수집, frozen에서 column_mapping/save_xlsx 노드 로드 실패)
+        # — 명시 고정
+        "engine.table_utils",
         "multipart",  # fastapi 업로드(python-multipart)
         "psutil",     # 엔트리 부모 감시 워치독
     ]
