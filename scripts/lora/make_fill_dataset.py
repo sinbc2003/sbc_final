@@ -175,17 +175,27 @@ def make_blank_form(src: Path, out: Path, blank_ids: list[str]) -> bool:
         return False
 
 
-def render_blank_grid(blank_path: Path) -> str | None:
-    """빈 양식의 그리드 렌더 + 라벨 목록 (모델 입력)."""
+# 프롬프트 빈칸 목록 상한 — 정답도 반드시 이 목록 안에서만 나와야 한다
+BLANK_LIST_CAP = 120
+
+
+def render_blank_grid(blank_path: Path):
+    """빈 양식의 그리드 렌더 + 라벨 목록 → (렌더, 프롬프트에 실린 셀ID 집합).
+
+    상한 때문에 목록에서 잘린 칸을 정답으로 요구하면 **원리상 맞출 수 없는
+    쌍**이 된다(§41d 실측: 정답 셀의 24%가 프롬프트에 없었음).
+    호출측은 반환된 집합으로 정답을 걸러야 한다.
+    """
     try:
         doc = parse_hwpx(str(blank_path))
     except Exception:
         return None
     parts = [doc.render_text(mark_blanks=True)[:4000]]
     fields = [f for f in extract_blank_fields(doc) if f["is_empty"]]
-    lines = [f"- {f['id']} : {f.get('label', '')}" for f in fields]
-    parts.append("### 채워야 할 빈칸\n" + "\n".join(lines[:120]))
-    return "\n\n".join(parts)
+    shown = fields[:BLANK_LIST_CAP]
+    lines = [f"- {f['id']} : {f.get('label', '')}" for f in shown]
+    parts.append("### 채워야 할 빈칸\n" + "\n".join(lines))
+    return "\n\n".join(parts), {f["id"] for f in shown}
 
 
 def synth_instruction(answers: list[dict], rng: random.Random) -> str:
@@ -223,7 +233,9 @@ _LABEL_GEN = [
     (re.compile(r"일시|날짜|일자|기간"),
      lambda r: f"2026. {r.randint(3, 12)}. {r.randint(1, 28)}."),
     (re.compile(r"학교명|학교|기관명|기관|소속"), lambda r: r.choice(_SCHOOLS)),
-    (re.compile(r"학년"), lambda r: f"{r.randint(1, 6)}학년"),
+    # 라벨이 이미 특정 학년('1학년' 열 헤더 등)이면 학년 값을 만들면 안 된다 —
+    # '1학년 → 6학년' 같은 라벨-값 모순이 학습 셀의 10%였다(§41d 실측).
+    (re.compile(r"(?<!\d)학년(?!도)"), lambda r: f"{r.randint(1, 6)}학년"),
     (re.compile(r"반$|반\b"), lambda r: f"{r.randint(1, 12)}반"),
     (re.compile(r"인원|명수|참가자\s*수|학생\s*수"), lambda r: f"{r.randint(5, 120)}명"),
     (re.compile(r"금액|예산|비용|원$"), lambda r: f"{r.randint(1, 900) * 10000:,}원"),
@@ -248,6 +260,13 @@ def synth_values(blank_path: Path, seed: int) -> list[dict] | None:
             if pat.search(label):
                 out.append({"id": f["id"], "label": label, "value": gen(rng)})
                 break
+    # 라벨이 셀을 유일하게 지목하지 못하면 **학습 불가능한 쌍**이 된다 —
+    # 같은 라벨의 서로 다른 셀에 서로 다른 무작위 값이 붙어, 모델이 원리상
+    # 구분할 수 없다(§41d 실측: 학습 셀의 49%). 중복 라벨은 통째로 버린다.
+    from collections import Counter
+    cnt = Counter(o["label"] for o in out)
+    out = [o for o in out if cnt[o["label"]] == 1]
+
     if len(out) < 3:
         return None
     # 대형 양식(수백 빈칸)은 지시문이 폭발 — 쌍당 40개 샘플 (시드 결정적)
@@ -282,11 +301,16 @@ def main() -> int:
                 if not vals:
                     skipped.append(p.name)
                     continue
-                h = {"answers": vals}
-                grid = render_blank_grid(p)
-                if not grid:
+                rendered = render_blank_grid(p)
+                if not rendered:
                     skipped.append(p.name + " (렌더 실패)")
                     continue
+                grid, shown = rendered
+                vals = [v for v in vals if v["id"] in shown]  # 목록 밖 정답 제거
+                if len(vals) < 3:
+                    skipped.append(p.name + " (빈칸목록 상한 밖)")
+                    continue
+                h = {"answers": vals}
             else:
                 h = harvest_doc(p, seed=args.seed + i)
                 if not h:
@@ -296,9 +320,14 @@ def main() -> int:
                 if not make_blank_form(p, blank, h["blank_ids"]):
                     skipped.append(p.name + " (클리어 실패)")
                     continue
-                grid = render_blank_grid(blank)
-                if not grid:
+                rendered = render_blank_grid(blank)
+                if not rendered:
                     skipped.append(p.name + " (렌더 실패)")
+                    continue
+                grid, shown = rendered
+                h["answers"] = [a for a in h["answers"] if a["id"] in shown]
+                if len(h["answers"]) < 3:
+                    skipped.append(p.name + " (빈칸목록 상한 밖)")
                     continue
 
             # 스타일별 지시문 3종 → 쌍 3개 (같은 양식, 다른 지시)
