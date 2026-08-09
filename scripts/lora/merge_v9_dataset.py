@@ -15,6 +15,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 GONGMUN = Path(r"D:\lora_data\dataset")
+# 기본은 v10(정화본, §41d). --v9로 이전 세트 재현 가능.
+FILL_SRCS_V10 = [Path(r"D:\lora_data\fill_v10\fill_pairs.jsonl")]
 FILL_SRCS = [Path(r"D:\lora_data\fill_v9\fill_pairs.jsonl"),
              Path(r"D:\lora_data\fill_v9_full\fill_pairs.jsonl")]
 OUT = Path(r"D:\lora_data\dataset_v9")
@@ -39,11 +41,18 @@ FILL_PROMPT = """당신은 교사의 공문 양식을 채우는 비서입니다.
 
 
 def main() -> int:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--v9", action="store_true", help="구 오염 세트 재현(비교용)")
+    args = ap.parse_args()
+    srcs = FILL_SRCS if args.v9 else FILL_SRCS_V10
+    out_dir = OUT if args.v9 else Path(r"D:\lora_data\dataset_v10")
+
     rng = random.Random(42)
 
     fill = []
     seen_files = set()
-    for src in FILL_SRCS:
+    for src in srcs:
         if not src.exists():
             continue
         for line in src.open(encoding="utf-8"):
@@ -69,16 +78,16 @@ def main() -> int:
     val = g_val + f_val
     rng.shuffle(train)
 
-    OUT.mkdir(exist_ok=True)
-    with (OUT / "train.jsonl").open("w", encoding="utf-8") as f:
+    out_dir.mkdir(exist_ok=True)
+    with (out_dir / "train.jsonl").open("w", encoding="utf-8") as f:
         for r in train:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    with (OUT / "val.jsonl").open("w", encoding="utf-8") as f:
+    with (out_dir / "val.jsonl").open("w", encoding="utf-8") as f:
         for r in val:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     print(f"공문 {len(g_train)}+{len(g_val)} / 채움 {len(f_train)}+{len(f_val)} "
-          f"→ train {len(train)} / val {len(val)} → {OUT}")
+          f"→ train {len(train)} / val {len(val)} → {out_dir}")
     return 0
 
 
