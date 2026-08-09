@@ -1193,6 +1193,15 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **잔여 1셀(0.2%)**: 글상자류 그리기 개체가 임베드된 설명 셀 — _set_cell_text의 직계 p/run 순회가 개체 내부 텍스트를 못 지움. 채움 대상 아닌 안내문구 셀이라 실사용 영향 미미 — 장기 백로그(개체 내 텍스트 처리).
 - 교훈 재확인: 실패율 측정은 "설계상 보호/제외"를 먼저 걸러야 함. 스크립트: scratchpad/nested_roundtrip.py.
 
+### §39 경쟁제품 정찰 — SchoolBoard 1.2.1 (교사 배포 무료앱) 정적 분석 ✅ (2026-08-09)
+- **정체**: Electron + **hwp-worker(PyInstaller onedir + win32com, 토큰 인증 HTTP 사이드카)** — 우리와 **동일 아키텍처**. 단 LLM은 **클라우드 프록시**(api.schoolboard.cc → OpenRouter/Gemini, supabase 라이선스). 문서 본문이 서버로 감 → **우리 차별점(완전 로컬)은 유효**. 흔적상 Claude Code `hwpx` 스킬 템플릿 사용(같은 도구 생태계).
+- **워커 API 21종**: live-session-{begin,read,op,validate,verify,save,abort,end} / agent-session-{begin,read,batch,save,render-pages,end} / export-hwpx / parse-document / render-pdf-pages.
+- **편집 루프(배울 점)**: read(구조+표좌표, 36만자 한도) → LLM 스트림 계획 → **적용 전 3중 검증**(워커 구조검증 + 로컬 규칙검사 + **독립 LLM 계획 감사** semantic_review) → 실패 시 **사유를 프롬프트에 실어 전체 재계획 1회** → op별 순차 적용(첫 실패 즉시 중단) → **적용 후 verify** → save 후 **hwpx 패키지 검증**(mimetype/section0) → end. 실패 시 abort+임시파일 제거, 원본 무변경(atomic).
+- **연산 스키마 가드(핵심 수확)**: `set_table_cell{table,row,col,value,**confirmedLabel**,overwrite,**expectedCurrent**}` — 모델이 "이 셀 라벨은 X"를 재선언(오배치 교차검증), 덮어쓰기는 현재값 선언 필수(낙관적 잠금) / `replace{find,replace,replaceAll,**expectedCount**}` — 매치 수 선언(단건이면 자동 1, runaway replaceAll 방어) / `**fill_column**{label,values,occurrence}` — **열 단위 일괄 채움**(명단·성적표 토큰 절약) / `occurrence` 중복 라벨 N번째 / 필드 **화이트리스트** 외 키 있으면 즉시 거부.
+- **우리 대비**: 우리 우위 = 셀ID **GBNF enum 강제**(모델이 좌표 자체를 못 틀림)·완전 로컬·후처리 규정화. 그들 우위 = **의미 오배치 방어(confirmedLabel)**·**열 단위 op**·**적용 전 의미 감사**·저장 패키지 검증.
+- **채택 후보(우선순위)**: ①confirmedLabel 교차검증(fill 스키마에 라벨 재선언 추가 — enum과 조합 시 좌표+의미 이중 방어) ②fill_column(명단형) ③적용 전 로컬 2차 감사(로컬 모델이라 비용 0) ④저장 hwpx 패키지 검증(싸고 확실) ⑤expectedCurrent 덮어쓰기 가드. **LaTeX→한글 수식 스크립트 변환기(JS, dfrac/binom/sqrt/root/matrix/cases/LEFT-RIGHT 등 광범위)** — 수학 교사용 자산, #035 open_hwp와 연결 가치.
+- 추출물: `scratchpad/schoolboard/asar_out/out/main/index.js`(1.2MB 번들, 정적 분석만 — **실행 안 함**).
+
 ### ⏭️ §31 다음 트랙 계획 (v6 완료 후 — 사용자 8/8 지시 반영)
 1. **표 인식·채우기 고도화** ("문서 제어를 inline AI보다 잘 되게 — 표 인식·칸 채우기 등등"):
    - 하드 벤치 확장: 현 벤치(채용점수표 8표)는 100% 포화 — **중첩표·비정형 양식·표갇힘형(방금 1,375건 확보!)으로 난이도 상승판** 구축 → 실패 사례 발굴 → hwpx_grid/캘리브레이션 개선 사이클.
