@@ -820,4 +820,18 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
     if log:
         total = len(fill_map) + len(fields) + len(body_map or {})
         log(f"그리드 채움: {filled}/{total}개")
+
+    # 저장 게이트(§40 ②): 산출 HWPX 패키지 구조 검증 — 한컴독스 거부 요인
+    # (mimetype·필수 파일·XML 웰폼드·manifest 참조)을 사전 차단한다.
+    # kordoc 미설치·실패 시 조용히 통과(게이트가 기능을 막지 않음).
+    try:
+        from engine import kordoc as _kordoc
+        v = _kordoc.validate_hwpx(out_path)
+        if v.get("available") and not v.get("ok") and log:
+            detail = "; ".join(
+                str(i.get("message") or i)[:60] for i in (v.get("issues") or [])[:3])
+            log(f"[경고] 저장본 HWPX 구조 검증 실패: {detail}")
+    except Exception:
+        pass
+
     return filled
