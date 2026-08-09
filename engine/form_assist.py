@@ -646,12 +646,19 @@ def _extract_hwpx_fields(path: str) -> list[dict]:
 
 
 def _build_fill_schema(ids) -> dict:
-    """{채움:[{id∈enum, 값:str}]} 강제 스키마 — 로컬은 GBNF가 셀ID를 못 틀리게 한다."""
+    """{채움:[{id∈enum, 값:str}]} 강제 스키마 — 로컬은 GBNF가 셀ID를 못 틀리게 한다.
+
+    maxItems=빈칸 수: 소형모델이 같은 셀ID를 반복하며 루프해 max_tokens를
+    소진하고 **응답 전체를 잃는** 실측(§41c: 33빈칸 문서에서 절단 → 0필드).
+    배열 길이를 빈칸 수로 묶으면 루프가 문법 차원에서 끝난다.
+    """
+    ids = list(ids)
     return {
         "type": "object",
         "properties": {
             "채움": {
                 "type": "array",
+                "maxItems": max(1, len(ids)),
                 "items": {
                     "type": "object",
                     "properties": {
@@ -706,6 +713,11 @@ def _parse_fill_response(text: str, valid_ids=None) -> dict:
         if not cid:
             continue
         val = it.get("값", it.get("value", it.get("text", "")))
+        # 중복 id는 **첫 값 채택**(§41c 실측: 소형모델이 같은 셀ID를 반복 출력하며
+        # 루프 — 19항목 중 고유 12개, 한 ID 7회. 마지막-우선이면 루프 쓰레기가
+        # 정답을 덮어쓴다).
+        if cid in out:
+            continue
         out[cid] = "" if val is None else str(val)
 
     if valid is not None:
@@ -715,6 +727,9 @@ def _parse_fill_response(text: str, valid_ids=None) -> dict:
 
 # 청크 하나의 그리드 렌더 문자 예산 (소형 모델 ctx 8192 안전 여유)
 _GRID_CHUNK_CHARS = 7000
+# 청크 하나의 빈칸 수 상한 — 문자 예산과 별개. 소형 모델은 한 응답에 담을
+# 항목이 많으면 중도 포기하거나 같은 셀ID를 반복한다(§41c 실측).
+_GRID_CHUNK_FIELDS = 15
 
 
 def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction: str,
@@ -739,24 +754,33 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
             misc.append(f)
 
     # 섹션 = (렌더, 필드들). 표는 개별 render(), 기타는 렌더 없이 목록만.
+    # 빈칸이 많은 표는 **같은 렌더를 공유하며 필드만 분할**한다 — 문자 예산만으로는
+    # 안 걸리는 밀집 양식(§41c 실측: 3.5천자에 빈칸 33·40개)에서 모델이 중도
+    # 포기해 10/33·6/40만 채우던 문제. 렌더는 반복해도 프롬프트 캐시가 흡수한다.
     sections: list = []
     for grid in grid_doc.tables:
         fs = by_table.get(grid.key)
-        if fs:
-            sections.append((grid.render(mark_blanks=True), fs))
-    if misc:
-        sections.append(("", misc))
+        if not fs:
+            continue
+        render = grid.render(mark_blanks=True)
+        for i in range(0, len(fs), _GRID_CHUNK_FIELDS):
+            sections.append((render, fs[i:i + _GRID_CHUNK_FIELDS]))
+    for i in range(0, len(misc), _GRID_CHUNK_FIELDS):
+        sections.append(("", misc[i:i + _GRID_CHUNK_FIELDS]))
 
-    # 문자 예산으로 청크 패킹 (표 하나가 예산 초과해도 최소 1섹션은 담는다)
+    # 문자 예산 + 필드 수 예산으로 청크 패킹 (한 섹션이 초과해도 최소 1섹션은 담는다)
     chunks: list = []
     cur_r, cur_f, cur_len = [], [], 0
     for render, fs in sections:
-        if cur_f and cur_len + len(render) > _GRID_CHUNK_CHARS:
+        over = (cur_len + len(render) > _GRID_CHUNK_CHARS
+                or len(cur_f) + len(fs) > _GRID_CHUNK_FIELDS)
+        if cur_f and over:
             chunks.append((cur_r, cur_f))
             cur_r, cur_f, cur_len = [], [], 0
-        cur_r.append(render)
+        if render not in cur_r:          # 같은 표를 쪼갠 경우 렌더 중복 방지
+            cur_r.append(render)
+            cur_len += len(render)
         cur_f.extend(fs)
-        cur_len += len(render)
     if cur_f:
         chunks.append((cur_r, cur_f))
 
