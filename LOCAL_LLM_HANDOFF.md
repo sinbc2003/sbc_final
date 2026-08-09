@@ -1202,6 +1202,18 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - **채택 후보(우선순위)**: ①confirmedLabel 교차검증(fill 스키마에 라벨 재선언 추가 — enum과 조합 시 좌표+의미 이중 방어) ②fill_column(명단형) ③적용 전 로컬 2차 감사(로컬 모델이라 비용 0) ④저장 hwpx 패키지 검증(싸고 확실) ⑤expectedCurrent 덮어쓰기 가드. **LaTeX→한글 수식 스크립트 변환기(JS, dfrac/binom/sqrt/root/matrix/cases/LEFT-RIGHT 등 광범위)** — 수학 교사용 자산, #035 open_hwp와 연결 가치.
 - 추출물: `scratchpad/schoolboard/asar_out/out/main/index.js`(1.2MB 번들, 정적 분석만 — **실행 안 함**).
 
+### §40 kordoc 흡수 — 결정론 문서 레이어 위임 + 자동 감지 ✅ (2026-08-10, `47f8eab`)
+- **배경(사용자 지시)**: 공무원 오픈소스 kordoc(1.7k★, MIT) 참고 개선. 실측 결과 **우리가 이미 쓰던 변환기**(hwp/pdf→md)였고, 4.7.2는 우리가 손으로 만들던 것들을 검증된 CLI로 제공: `lint`(편람 표기법 검수) `validate`(HWPX 구조·한컴독스 거부 사전차단) `redact`(서식보존 PII 마스킹) `patch`(라운드트립) `fill` `generate` `profile` `seal` `render` `--format chunks`(RAG 청크).
+- **전략 판단**: kordoc이 안 하는 것 = **로컬 LLM 파인튜닝(내용 생성·의미 매칭)** = 우리 진짜 차별점. kordoc이 잘하는 것 = 파싱·표기법·마스킹·검증 = **재발명 중단하고 흡수**. 미션("프론티어=설계, 로컬=추론, 나머지는 코드")에 정확히 부합.
+- **① 버전 고정**: npx 온디맨드 → `package.json` devDep `kordoc@4.7.2`(--save-exact). `engine/kordoc.py` 단일 래퍼 — 고정본 우선 → npx 폴백 → 미설치 시 None(호출측 폴백 보장, frozen 안전). `_parse_findings`가 lint(findings)/redact(hits)/validate 출력을 공통 정규화. **CLI 플래그 실측: lint·validate·redact는 `--json`(`--format json` 아님), redact는 md 미지원(hwpx/hwp/office만), lint는 stdin `-` 지원.**
+- **② validate 저장 게이트**: `fill_hwpx_cells` 저장 직후 kordoc validate — 실패 시 경고 로그(기능 차단 안 함). 실측: 원본·산출 모두 통과.
+- **③ lint 교차검증**: 우리 공문 후처리 산출이 **지적 0건 통과**(날짜 온점·0 제거·붙임·끝. 규칙). 나쁜 표기 표본은 2건 정확 검출 → 규칙이 실제 작동함을 확인. **우리 §37 후처리가 편람 기준으로 옳았다는 외부 검증.**
+- **④ redact A/B — 경쟁 아닌 상호보완**: kordoc = 구조화 PII(전화·이메일·주민번호·계좌, 5/5 검출), 우리 `_redact_staff_names` = **인명**(kordoc 룰에 없음). → 병용이 정답. (기존 코드 유지, kordoc은 파일 단위 마스킹 필요 시 호출.)
+- **⑤ 자동 감지 파이프라인** `scripts/kordoc_watch.py`: npm registry로 신버전 감지 → **임시 디렉토리 격리 설치**(현행 환경 불변) → 현행/신버전 4항목 비교(변환 길이·표 수, lint 지적 수, validate 통과, redact 탐지 수) + 오프라인 스위트 → **통과 시에만 업그레이드 제안**. `data/kordoc_watch.json`에 상태 저장, `--notify` 텔레그램.
+  - **설계 원칙: 감지·검증은 자동, 적용은 승인.** 외부 의존성 무인 자동 상향은 조용한 회귀(v7 HTML표 사건류)를 배포까지 흘린다.
+  - **리허설 실측**: 4.7.1을 가짜 신버전으로 전체 경로 검증 — 격리 설치·4항목 비교·판정 정상 동작(변환 3종 동일, lint 0, validate ok, redact 2).
+- **잔여**: `--format chunks`를 큰 문서 슬라이싱에 흡수(사용자 제안 ①과 결합) · `kordoc patch` vs 우리 fill 라운드트립 비교 · watch를 cron/loop 주기 실행 등록.
+
 ### ⏭️ §31 다음 트랙 계획 (v6 완료 후 — 사용자 8/8 지시 반영)
 1. **표 인식·채우기 고도화** ("문서 제어를 inline AI보다 잘 되게 — 표 인식·칸 채우기 등등"):
    - 하드 벤치 확장: 현 벤치(채용점수표 8표)는 100% 포화 — **중첩표·비정형 양식·표갇힘형(방금 1,375건 확보!)으로 난이도 상승판** 구축 → 실패 사례 발굴 → hwpx_grid/캘리브레이션 개선 사이클.
