@@ -1,24 +1,56 @@
 # 로컬 LLM 전환 설계 — 핸드오프 문서
 
-> 작성: 2026-07-02 / 프로젝트: TeacherFlow (`C:\Users\sinbc\OneDrive\바탕 화면\00_sbc_final`)
+> 작성: 2026-07-02 / **최종 갱신: 2026-08-10** / 프로젝트: TeacherFlow
+> 작업 경로(현재): `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop)
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
-> ## ⏩ 다음 세션은 여기부터 (2026-07-10 Desktop 갱신)
-> **✅ §16 1순위 완료 = `form_assist` HWPX 그리드 경로 + json_schema(셀ID enum) 강제.** 상세 = **§17**. 이제 어떤 hwpx 양식이든 (참고문서+지시) → gemma가 **라벨 그리드 읽고 셀ID enum으로 값 배치** → `fill_hwpx_cells`(COM-free)로 채움. 소형 gemma E2E 통과(가정통신문 4빈칸 100% 정확 배치, 무효ID 0). 벤치 495/495 회귀 유지.
-> **다음 후보**: ① §16-2 계산 안전망(파생 산수 코드 재계산 — 범용 계산열 감지) ② §16-3 라이브 COM 복잡표 행/열 복원(§5 gap#2, 난제) ③ LoRA 증류(`GEMMA_LORA_GUIDE.md`, 생성 품질) ④ HTTP E2E(`/api/form-assist`·`/api/chat` 프론트 연결) ⑤ 큰 양식(빈칸 수백) 그리드 렌더 컨텍스트 초과 대비 분할.
-> (이전: §14 감사 2라운드 = 53확정결함 중 high 6·goal-critical 전부 12수정묶음 push·벤치 495/495 회귀확인 완료. 상세 §15. 환경·실행법 §11.)
-> ⚠️ 이 프로젝트는 이제 **Desktop(`C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final`, RTX5080)** 에서 작업. 노트북(sinbc) 경로/§10.6 goe_watcher 이슈는 Desktop엔 **해당 없음**.
+> ## ⏩ 다음 세션은 여기부터 (2026-08-10 08시 갱신)
 >
-> **Desktop에서 완료 (2026-07-08)**:
-> - 로컬 gemma(E4B Q3) 벤치 495/495 Desktop 재현 + 엔진 부팅 (§11)
-> - 라이브 COM 실증: 한/글 문단편집·엑셀 수식표·복잡 병합표(신병철 채용1위) (§11 데모)
-> - `llm_manager.generate_chat` 로컬 분기 추가 → 라이브 로컬 LLM 성공 (§11)
-> - 코드 모듈화: `live_controller`→`engine/live/`, `hwp_controller`→`engine/hwp/`, `chat_handler`→`engine/chat/` (무중단 facade) (§12)
-> - 새 문서 생성 검증 + md_to_hwpx 표드롭 버그 수정 + 표 디자인(헤더음영·열너비) 개선 (§13)
+> ### 🔴 대기 중인 결정 1건 — **v10 재학습 (사용자 승인 필요)**
+> 재료·스크립트 준비 완료. 승인 시 아래 그대로 실행(E2B 약 1시간 20분):
+> ```
+> TMP=D:/tmp TEMP=D:/tmp HF_HOME=D:/hf_home PYTHONUTF8=1 \
+>   D:/lora_train/venv/Scripts/python.exe scripts/lora/train_lora.py \
+>   --model D:/models/hf/gemma-4-E2B-it --data D:/lora_data/dataset_v10 \
+>   --out D:/lora_train/out/gongmun_g4e2b_v10 --max-len 2048 --batch 1 \
+>   --grad-accum 16 --no-4bit --no-eval
+> ```
+> 이후: `llama.cpp/convert_lora_to_gguf.py out/gongmun_g4e2b_v10/final --base D:/models/hf/gemma-4-E2B-it --outfile D:/models/loras/gongmun_g4e2b_v10.gguf` → **A/B(아래 검증 프로토콜 준수)** → 통과 시 `packaging/stage_bundle.py`의 `LORA`·`local_lora`를 v10으로 → 재빌드 체인.
+> **왜 하는가**: §41d — 현행 v9는 **학습 셀의 절반이 원리상 학습 불가능한 오염 데이터**로 학습됨. 정화본(오염 0%)으로 재학습 시 채움 개선 기대.
 >
-> **테스트 모델**: Gemma 3n **E4B**(유효 4B). E2B(2B) 미검증 — §13 끝 참고.
-> **Git**: 원격 `github.com/sinbc2003/sbc_final`. `data/fixtures/`(PII·데모)는 .gitignore.
-> **환경 주의**: C: 꽉 참(모델·llama.cpp는 D:). llama-server는 엔진이 자동기동. 공유 GPU라 작업 후 종료로 VRAM 반납.
+> ### 현재 상태 (한 줄)
+> **배포판 = TeacherFlow + E2B v9 어댑터.** NSIS 92.7MB(`E:\sbc_lab\tf_build\cargo_target\release\bundle\nsis\`) + 포터블 3.66GB(`E:\sbc_lab\tf_build\TeacherFlow-portable\`). 오프라인 테스트 **130 PASS**. 최신 커밋 `e7b81d6`.
+>
+> ### 최근 트랙 요약 (§32~§41d, 8/8~8/10)
+> | 영역 | 결과 |
+> |---|---|
+> | 표 감지 | header_row_count 병리 수정 **+134%** · 부분슬롯(괄호형 `( )`·콜론말미형) · **중첩표 왕복 99.8%** |
+> | 승인 UX | 라이브 액션·채움 **둘 다** 검토 패널 경유(§33·§33b) + **피드백 로그**(사용자 수정값=SFT 골드, §36) |
+> | LoRA | v9 멀티태스크(공문+채움) 채택 · **E4B 탈락**(엄정 31% vs 11%, §41·§41b) |
+> | 공문 품질 | 관련일자·담당자 실명 placeholder 방어(§37·§37b) — kordoc lint **지적 0건 통과** |
+> | 외부 흡수 | **kordoc 4.7.2 고정**(`engine/kordoc.py`) + 신버전 자동 감지·격리 회귀검증(§40) |
+> | 정찰 | SchoolBoard = 동일 아키텍처·**클라우드 LLM**. 배울 점 = 연산 가드·적용 전 감사(§39) |
+> | 채움 | 루프 방어 `maxItems`·중복 첫값 채택·필드 수 청킹 → 응답 실패 **2/8→0/8**(§41c) |
+> | **데이터** | **오염 3종 발견·제거**(목록밖 17%·구분불가 42%·라벨모순 8% → **전부 0%**, §41d) |
+>
+> ### ⚠️ 반드시 지킬 것 (반복 실측된 함정)
+> - **검증 서버 기동**: vulkan 빌드 + `--reasoning off` **+ `--reasoning-budget 0`** + `--jinja`. CUDA 구빌드(`llama_cpp/bin/`)는 reasoning off가 안 먹어 **사고 토큰이 응답을 삼킨다**(content 0자).
+> - **A/B는 어댑터 2개 프리로드**(`--lora-scaled a.gguf:0.0 --lora-scaled b.gguf:0.0`) 후 **요청별 `lora:[{id,scale}]`** 전환 — 서버 재시작 불필요.
+> - **채움 정확도는 엄정 지표로만 말한다**: 전 문서 gold 필드가 분모, 파싱 실패는 0점. 과거 "70%"는 실패를 분모에서 뺀 값이라 **같은 기준이 아니다**. 엄정 기준 현행 **36%**(소·중형 양식만 80%).
+> - **모델 크기 비교는 양자화 등급을 맞춰라** — E4B Q3 vs E2B Q4로 재던 실수(§41b). 필요 시 `convert_hf_to_gguf.py` → `llama-quantize`로 등급 맞춤(E4B Q4_K_M은 `E:\sbc_lab\gguf_work\`에 보존).
+> - **데이터 정화 > 학습 기법** — v7 HTML표, v9 오염 3종. **3회 반복 확인된 최대 레버**.
+> - frozen 빌드: 엔진 재빌드 후 **tauri build 재실행 필수**, 검증은 `/api/health`의 **nodes 수 대조(31)**, `PYTHONUTF8=1`, AV(V3) 예외 등록.
+> - 작업 후 **llama-server 종료로 VRAM 반납**(공유 GPU).
+>
+> ### 다음 후보 (상세 우선순위는 문서 하단 "⏭️ 다음 트랙")
+> ① **v10 재학습**(위) ② **배포 마찰 제거 — 코드 서명이 최대 병목** ③ 큰 문서 처리(스키마 강제 사실 추출 + `kordoc --format chunks`) ④ SchoolBoard 가드 채택(confirmedLabel·fill_column) ⑤ 편집 액션 학습쌍(block_id 오선택 = 유일 미검증 축)
+>
+> ### 환경
+> - 작업 경로: `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop, RTX5080 16GB)
+> - Git: `github.com/sinbc2003/sbc_final` (main). `data/fixtures/`·모델·gguf는 .gitignore.
+> - 엔진 `PYTHONUTF8=1 python -m uvicorn engine.server:app --port 8407` / 프론트 `ENGINE_PORT=8407 npx vite`
+> - 학습 venv `D:\lora_train\venv` · 데이터 `D:\lora_data` · 모델 `D:\models` · 대용량 산출물은 **E:**(여유 330GB)
+> - **디스크 주의**: C: 여유 2.4GB / D: 10GB — 빌드 전 확인. 정리 후보: `D:\lora_train\out`의 폐기 어댑터 v3~v7(각 0.71GB, GGUF는 이미 변환됨).
 
 ---
 
