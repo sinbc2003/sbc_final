@@ -8,6 +8,7 @@
 - FAIL.txt → 즉시 경보.
 """
 import json
+import msvcrt
 import re
 import subprocess
 import sys
@@ -18,6 +19,13 @@ from pathlib import Path
 BASE = Path(r"E:/sbc_lab/tf_build/v10_chain")
 sys.path.insert(0, str(BASE))
 from send_tg import api  # noqa: E402
+
+# ── 싱글턴 락: 인스턴스 1개만 (이중 발송·포트 충돌 방지) ──
+_LOCK = open(BASE / "reporter.lock", "a+")
+try:
+    msvcrt.locking(_LOCK.fileno(), msvcrt.LK_NBLCK, 1)
+except OSError:
+    sys.exit(0)
 
 LOG = BASE / "reporter.log"
 STATE_F = BASE / "reporter_state.json"

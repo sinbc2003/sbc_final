@@ -8,6 +8,7 @@
 - 로그: E:/sbc_lab/tf_build/v10_chain/chain.log (+ 단계별 train 로그)
 - 마커: DONE.txt / FAIL.txt
 """
+import msvcrt
 import os
 import re
 import subprocess
@@ -17,6 +18,13 @@ from pathlib import Path
 
 BASE_DIR = Path(r"E:/sbc_lab/tf_build/v10_chain")
 BASE_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── 싱글턴 락: 어떤 경로(수동·타 세션·봇)로 띄워도 인스턴스 1개만 ──
+_LOCK = open(BASE_DIR / "chain.lock", "a+")
+try:
+    msvcrt.locking(_LOCK.fileno(), msvcrt.LK_NBLCK, 1)
+except OSError:
+    sys.exit(0)  # 이미 실행 중 — 조용히 종료
 CHAIN_LOG = BASE_DIR / "chain.log"
 PY = r"D:/lora_train/venv/Scripts/python.exe"
 TRAIN = str(Path(__file__).resolve().parent / "train_lora.py")
@@ -78,21 +86,33 @@ def tail_steps(log_path: Path) -> tuple[int, float]:
 
 def run_train(tag: str, model: str, out_dir: str, extra: list[str],
               slow_sit: float, need_vram: int, max_attempts: int,
-              probe_after_step: int = 4, probe_timeout_s: int = 1800) -> bool:
-    """학습 1종을 스필-감지 재시도 루프로 완주시킨다."""
+              probe_after_step: int = 4, probe_timeout_s: int = 1800,
+              maxlen_schedule: list | None = None) -> bool:
+    """학습 1종을 스필-감지 재시도 루프로 완주시킨다.
+
+    maxlen_schedule: [(시도상한, max_len)] — 반복 스필 시 단계적으로 낮춰
+    완주를 보장(로짓 피크 = vocab 262K × seq 이므로 seq를 줄이면 GB 단위 절감).
+    스필 킬은 항상 checkpoint(step 28) 이전이라 재개-혼합 위험 없음.
+    """
     out_path = Path(out_dir)
     train_log = BASE_DIR / f"train_{tag}.log"
     for attempt in range(1, max_attempts + 1):
         wait_vram(need_vram)
+        max_len = "2048"
+        if maxlen_schedule:
+            for thr, ml in maxlen_schedule:
+                if attempt <= thr:
+                    max_len = ml
+                    break
         cmd = [PY, TRAIN, "--model", model, "--data", DATA, "--out", out_dir,
-               "--max-len", "2048", "--batch", "1", "--grad-accum", "16",
+               "--max-len", max_len, "--batch", "1", "--grad-accum", "16",
                "--no-eval"] + extra
         cp = latest_checkpoint(out_path)
         if cp is not None:
             cmd += ["--resume", str(cp)]
-            log(f"[{tag}] 시도 {attempt}: {cp.name}에서 재개")
+            log(f"[{tag}] 시도 {attempt}: {cp.name}에서 재개 (max-len {max_len})")
         else:
-            log(f"[{tag}] 시도 {attempt}: 처음부터")
+            log(f"[{tag}] 시도 {attempt}: 처음부터 (max-len {max_len})")
         with open(train_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT,
                                     env=ENV)
@@ -146,7 +166,10 @@ def main() -> int:
     ok = run_train("e2b", r"D:/models/hf/gemma-4-E2B-it",
                    r"D:/lora_train/out/gongmun_g4e2b_v10",
                    extra=["--no-4bit"], slow_sit=15.0, need_vram=15300,
-                   max_attempts=12)
+                   max_attempts=12,
+                   # 초반은 v9 레시피 순수(2048), 반복 스필 시 단계 하향:
+                   # 1792 = 초과 7샘플(0.26%) 추가 손실, 1536 = 26샘플(0.95%)
+                   maxlen_schedule=[(4, "2048"), (7, "1792"), (99, "1536")])
     if not ok:
         (BASE_DIR / "FAIL.txt").write_text("E2B 학습 실패", encoding="utf-8")
         return 1
