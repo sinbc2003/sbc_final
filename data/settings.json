@@ -10,7 +10,7 @@
   "llm": {
     "default_provider": "local",
     "local_model": "E2B",
-    "local_lora": "gongmun_g4e2b_v1",
+    "local_lora": "gongmun_g4e2b_v9",
     "models_dirs": [
       "D:/models/teacherflow/e2b"
     ],
