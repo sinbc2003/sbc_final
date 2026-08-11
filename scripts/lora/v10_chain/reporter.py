@@ -45,15 +45,19 @@ def log(msg):
 
 
 def tg(text):
-    """4096자 청킹, parse_mode 없는 플레인 텍스트."""
-    try:
-        for i in range(0, len(text), 3900):
-            api("sendMessage", {"chat_id": "8518696668",
-                                "text": text[i:i + 3900]})
-        return True
-    except Exception as e:
-        log(f"TG 실패: {e}")
-        return False
+    """4096자 청킹 + DNS 일시 장애 재시도(3회) + 디스크 보존(유실 방지)."""
+    with open(BASE / "tg_outbox.log", "a", encoding="utf-8") as f:
+        f.write(f"\n===== {time.strftime('%m-%d %H:%M:%S')} =====\n{text}\n")
+    for attempt in range(3):
+        try:
+            for i in range(0, len(text), 3900):
+                api("sendMessage", {"chat_id": "8518696668",
+                                    "text": text[i:i + 3900]})
+            return True
+        except Exception as e:
+            log(f"TG 실패(시도 {attempt+1}): {e}")
+            time.sleep(60)
+    return False
 
 
 def state():
@@ -243,7 +247,10 @@ def run_suite(model_path, adapters, tag):
         for idx, (_, label) in enumerate(adapters):
             pair = [(i, 1.0 if i == idx else 0.0) for i in range(n_ad)]
             gen_out += gen_bench(gens, pair, label)
-        return "\n".join(report) + "\n\n📝 공문 생성 A/B:\n" + "\n\n".join(gen_out)
+        result = ("\n".join(report) + "\n\n📝 공문 생성 A/B:\n"
+                  + "\n\n".join(gen_out))
+        (BASE / f"bench_{tag}_result.txt").write_text(result, encoding="utf-8")
+        return result
     finally:
         proc.kill()
         proc.wait()
@@ -284,12 +291,21 @@ def main():
                                   "E2B")
                     tg(r)
                 else:
-                    tg("[E2B 벤치] VRAM 대기 3h 초과 — E4B 완료 후로 연기")
+                    tg("[E2B 벤치] VRAM 대기 3h 초과 — E4B 완료 후 실행")
+                    st["bench_e2b_deferred"] = True
                 st["bench_e2b"] = True
                 save_state(st)
             # E4B 벤치 + 최종보고 (체인 DONE 시)
             if (BASE / "DONE.txt").exists() and not st.get("bench_e4b"):
-                tg("🏁 [v10 체인] 학습 전체 완료 — E4B 벤치 시작")
+                tg("🏁 [v10 체인] 학습 전체 완료 — 벤치 시작")
+                if st.get("bench_e2b_deferred"):
+                    r = run_suite(E2B_GGUF,
+                                  [("gongmun_g4e2b_v9.gguf", "v9 어댑터"),
+                                   ("gongmun_g4e2b_v10.gguf", "v10 어댑터")],
+                                  "E2B")
+                    tg(r)
+                    st["bench_e2b_deferred"] = False
+                    save_state(st)
                 r = run_suite(E4B_GGUF,
                               [("gongmun_g4e4b_v9.gguf", "v9 어댑터"),
                                ("gongmun_g4e4b_v10.gguf", "v10 어댑터")],
