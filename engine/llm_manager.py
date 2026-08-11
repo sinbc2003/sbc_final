@@ -409,18 +409,23 @@ class LLMManager:
 
         server_url = self._ensure_local_server()
 
-        def _post(with_schema: bool):
+        def _post(with_schema: bool, temp: float | None = None,
+                  dry_multiplier: float = 0.8):
             payload: dict = {
                 "model": "local", "messages": messages,
-                "max_tokens": max_tokens, "temperature": temperature,
+                "max_tokens": max_tokens,
+                "temperature": temperature if temp is None else temp,
             }
             if lora_scale is not None and getattr(self, "_lora_loaded", False):
                 payload["lora"] = [{"id": 0, "scale": lora_scale}]
-                # 소형모델 어댑터 생성의 반복 루프 방어(E2B 실측).
+            if not (with_schema and json_schema):
+                # 소형모델 자유 생성의 반복 루프 방어(E2B·E4B 실측, §41h).
                 # ⚠ repeat_penalty는 프롬프트(제목) 토큰까지 억제해 주제 이탈 유발
                 # (실측: 독서캠프→퇴직수당) → 시퀀스 반복만 잡는 DRY 샘플러 사용.
-                # 추출·벤치(lora 미지정)는 이 경로를 안 타므로 무영향.
-                payload["dry_multiplier"] = 0.8
+                # 어댑터 유무와 무관하게 자유 생성 전체에 적용(무어댑터 채팅도 루프
+                # 영향권). JSON 채움·추출은 문법(maxItems·enum)이 반복을 구조적으로
+                # 차단하고, 정당한 반복 구조({"id":..}열)라 DRY 제외.
+                payload["dry_multiplier"] = dry_multiplier
                 payload["dry_allowed_length"] = 4
             if with_schema and json_schema:
                 # OpenAI 호환 스키마 강제 디코딩 (llama.cpp가 문법으로 강제)
@@ -461,7 +466,30 @@ class LLMManager:
                 )
             raise RuntimeError(f"llama-server 오류: {resp.status_code} {resp.text[:300]}")
 
-        return (data["choices"][0]["message"].get("content") or "").strip()
+        choice = data["choices"][0]
+        content = (choice["message"].get("content") or "").strip()
+
+        # finish=length는 대부분 반복 루프의 예산 소진(§41 실측: 소형모델은
+        # 불확실할수록 직전 패턴을 복사하며 EOS 확률이 낮아짐) —
+        # 온도·DRY를 올려 1회 루프브레이크 재시도. 소예산 호출(분류 등)은 제외.
+        if choice.get("finish_reason") == "length" and max_tokens >= 256:
+            try:
+                retry = _post(with_schema=bool(json_schema),
+                              temp=max(temperature, 0.4), dry_multiplier=1.2)
+                rdata = retry.json()
+                if retry.status_code == 200 and not rdata.get("error"):
+                    rchoice = rdata["choices"][0]
+                    rcontent = (rchoice["message"].get("content") or "").strip()
+                    if rcontent and rchoice.get("finish_reason") != "length":
+                        return rcontent
+            except Exception:
+                pass  # 재시도 실패 시 원본으로 진행
+            # 재시도도 절단 → 자유 텍스트만 마지막 미완 행 제거(JSON은 원형 유지 —
+            # 파서의 관대 파싱·재시도가 상류에서 처리)
+            if not json_schema and "\n" in content:
+                content = content.rsplit("\n", 1)[0].rstrip()
+
+        return content
 
     def _generate_local(
         self, prompt: str, max_tokens: int, temperature: float, lora: str | None,
