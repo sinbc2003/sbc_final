@@ -797,7 +797,8 @@ def _parse_instruction_pairs(instruction: str) -> dict:
     return pairs
 
 
-def prematch_fields(instruction: str, fields: list) -> tuple:
+def prematch_fields(instruction: str, fields: list,
+                    all_fields: list | None = None) -> tuple:
     """지시문 명시 쌍을 코드가 100% 정밀로 선채움 — "지능을 코드로" (§42 Stage1).
 
     1차 = 정규화 완전일치 + 후보 유일, 2차 = 포함 일치 + 후보 유일.
@@ -810,6 +811,34 @@ def prematch_fields(instruction: str, fields: list) -> tuple:
     by_norm: dict = {}
     for f in fields:
         by_norm.setdefault(_norm_label(f.get("label")), []).append(f)
+
+    # 연결 오염 가드(§42b 오배치 23건의 근원): 값 안에 다른 빈칸 라벨이
+    # 통째로 들어있으면 "값+다음라벨" 접합 쓰레기 — 기각(LLM 폴백).
+    # 라벨 지식은 (주어지면) 문서 전체 빈칸에서 — 대상 밖 라벨 접합도 탐지
+    label_src = all_fields if all_fields else fields
+    known = list({_norm_label(f.get("label")) for f in label_src
+                  if len(_norm_label(f.get("label"))) >= 4})
+
+    def _tainted(nv: str, own: str) -> bool:
+        return any(nl != own and nl in nv for nl in known)
+
+    # 값을 라벨 경계에서 재절단: 값 꼬리가 알려진 라벨이면 잘라 회수
+    def _rescue(val: str) -> str:
+        nv = _norm_label(val)
+        for nl in sorted(known, key=len, reverse=True):
+            if nv.endswith(nl) and len(nv) > len(nl):
+                pat = r"\s*".join(re.escape(c) for c in nl)
+                m = re.search(pat + r"\s*$", val)
+                if m and m.start() > 0:
+                    return val[:m.start()].rstrip().rstrip(",.").rstrip()
+        return val
+
+    cleaned = {}
+    for nl, val in pairs.items():
+        val = _rescue(val)
+        if not _tainted(_norm_label(val), nl):
+            cleaned[nl] = val
+    pairs = cleaned
 
     filled: dict = {}
     matched_labels = set()
