@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -726,6 +727,110 @@ def _parse_fill_response(text: str, valid_ids=None) -> dict:
 
 
 # 청크 하나의 그리드 렌더 문자 예산 (소형 모델 ctx 8192 안전 여유)
+def _norm_label(s: str) -> str:
+    """라벨 정규화 — 공백 제거('학 생 명'→'학생명')."""
+    return re.sub(r"\s+", "", str(s or ""))
+
+
+def _parse_instruction_pairs(instruction: str) -> dict:
+    """지시문에서 명시적 라벨→값 쌍 추출 (Stage1 사전 매칭 §42).
+
+    지원: ①"라벨은(는) 값, 라벨은(는) 값." 나열형(FormAssist 정형 지시)
+         ②"라벨: 값" 줄 단위 콜론형(자유 지시).
+    오추출 쌍은 빈칸 라벨과 매칭 실패로 무해하다(내장 안전핀) —
+    실제 채움은 라벨이 유일하게 일치할 때만 일어난다.
+    """
+    pairs: dict = {}
+    text = instruction or ""
+
+    # ① 은(는) 나열형 — 마커로 자르고, 값|다음라벨은 마지막 ", "에서 분리
+    #    ("2,480,000원"처럼 공백 없는 콤마는 값에 안전하게 남는다)
+    segs = re.split(r"(?:은|는)\((?:는|은)\)\s*", text)
+    if len(segs) >= 2:
+        def _tail_label(s: str) -> str:
+            t = re.split(r"[.\n]", s)[-1]
+            if ", " in t:
+                t = t.rsplit(", ", 1)[-1]
+            return t.strip()
+
+        label = _tail_label(segs[0])
+        for i in range(1, len(segs)):
+            seg = segs[i]
+            if i < len(segs) - 1:
+                value, _, nxt = seg.rpartition(", ")
+                if not value:
+                    value, nxt = seg, ""
+            else:
+                # 문장 종결 "." 1개 제거 (값 자체가 "26."으로 끝나는 날짜는
+                # 종결과 구분 불가한 극소수 케이스 — 수용)
+                value, nxt = re.sub(r"\.\s*$", "", seg), ""
+            if label and value.strip():
+                pairs.setdefault(_norm_label(label), value.strip())
+            label = _tail_label(nxt) if nxt else ""
+
+    # ② 콜론형 — "라벨: 값. 라벨: 값." (한 줄 다중 쌍 + 줄 단위 혼용).
+    #   콜론(연속 "::")을 분리자로, 라벨 = 직전 조각의 문장 꼬리,
+    #   값 = 다음 라벨 직전까지. 날짜값("2026. 3. 28.")의 내부 ". "는
+    #   마지막 분리자 rsplit이라 보존된다.
+    # 시간("10:00")·비율 등 숫자:숫자 콜론은 분리자가 아님
+    cms = list(re.finditer(r"[:：]+(?=\s)|(?<!\d)[:：]+(?!\d)", text))
+    if cms:
+        def _tail2(s: str) -> str:
+            t = re.split(r"\.\s+|\n", s)[-1]
+            if ", " in t:
+                t = t.rsplit(", ", 1)[-1]
+            return t.strip(" -·•※\t")
+
+        for j, m in enumerate(cms):
+            lab = _tail2(text[(cms[j - 1].end() if j else 0):m.start()])
+            nxt = cms[j + 1].start() if j + 1 < len(cms) else len(text)
+            seg = text[m.end():nxt]
+            if "\n" in seg and j + 1 < len(cms):
+                val = seg.split("\n", 1)[0]
+            elif j + 1 < len(cms):
+                val = seg.rsplit(". ", 1)[0] if ". " in seg else seg
+            else:
+                val = re.sub(r"\.\s*$", "", seg)
+            lab, val = lab.strip(), val.strip()
+            if lab and val and len(lab) <= 60 and not val.startswith("//"):
+                pairs.setdefault(_norm_label(lab), val)
+    return pairs
+
+
+def prematch_fields(instruction: str, fields: list) -> tuple:
+    """지시문 명시 쌍을 코드가 100% 정밀로 선채움 — "지능을 코드로" (§42 Stage1).
+
+    1차 = 정규화 완전일치 + 후보 유일, 2차 = 포함 일치 + 후보 유일.
+    중복 라벨(어느 칸인지 원리상 모호)·다중 후보는 LLM에 넘긴다.
+    반환: (선채움 {id:값}, 잔여 필드 목록).
+    """
+    pairs = _parse_instruction_pairs(instruction)
+    if not pairs:
+        return {}, fields
+    by_norm: dict = {}
+    for f in fields:
+        by_norm.setdefault(_norm_label(f.get("label")), []).append(f)
+
+    filled: dict = {}
+    matched_labels = set()
+    for nl, val in pairs.items():
+        cand = by_norm.get(nl, [])
+        if nl and len(cand) == 1:
+            filled[cand[0]["id"]] = val
+            matched_labels.add(nl)
+    for nl, val in pairs.items():
+        if nl in matched_labels or len(nl) < 2:
+            continue
+        cands = [f for f in fields
+                 if f["id"] not in filled and len(_norm_label(f.get("label"))) >= 2
+                 and (nl in _norm_label(f.get("label"))
+                      or _norm_label(f.get("label")) in nl)]
+        if len(cands) == 1:
+            filled[cands[0]["id"]] = val
+    residual = [f for f in fields if f["id"] not in filled]
+    return filled, residual
+
+
 _GRID_CHUNK_CHARS = 7000
 # 청크 하나의 빈칸 수 상한 — 문자 예산과 별개. 소형 모델은 한 응답에 담을
 # 항목이 많으면 중도 포기하거나 같은 셀ID를 반복한다(§41c 실측).
@@ -742,6 +847,16 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
     반환: 병합된 {id:값}.
     """
     from engine.hwpml.hwpx_grid import ID_RE
+
+    # ── 0. 결정적 사전 매칭 — 지시문의 명시 쌍은 코드가 확정(오배치 0) ──
+    pre_fill: dict = {}
+    if config.get("fill_prematch", True):
+        pre_fill, grid_fields = prematch_fields(instruction, grid_fields)
+        if pre_fill:
+            log(f"사전 매칭: {len(pre_fill)}개 코드 확정, LLM 잔여 {len(grid_fields)}개")
+        if not grid_fields:
+            log(f"배치 결정: {len(pre_fill)}개 항목 (전부 사전 매칭)")
+            return pre_fill
 
     # 필드를 표별 / 기타(본문·누름틀)로 분류
     by_table: dict = {}
@@ -816,9 +931,25 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
 """
         if len(chunks) > 1:
             log(f"  청크 {i+1}/{len(chunks)}: 빈칸 {len(fields)}개")
-        resp = _call_llm(prompt, provider, model, config, json_schema=schema)
-        fill_data.update(_parse_fill_response(resp, ids))
-    log(f"배치 결정: {len(fill_data)}개 항목")
+        votes = int(config.get("fill_votes", 1) or 1)
+        if votes <= 1:
+            resp = _call_llm(prompt, provider, model, config, json_schema=schema)
+            fill_data.update(_parse_fill_response(resp, ids))
+        else:
+            # k-표결 — temp>0 샘플 k개에서 셀별 다수결(동수는 최초 응답 우선).
+            # 소형모델의 간헐 오독을 상호 상쇄 (§42 Stage1).
+            from collections import Counter
+            vote_cfg = dict(config)
+            vote_cfg["temperature"] = float(config.get("vote_temperature", 0.6))
+            per_id: dict = {}
+            for _ in range(votes):
+                r = _call_llm(prompt, provider, model, vote_cfg, json_schema=schema)
+                for k, v in _parse_fill_response(r, ids).items():
+                    per_id.setdefault(k, Counter())[str(v)] += 1
+            fill_data.update(
+                {k: c.most_common(1)[0][0] for k, c in per_id.items()})
+    fill_data = {**fill_data, **pre_fill}  # 사전 매칭이 항상 우선
+    log(f"배치 결정: {len(fill_data)}개 항목 (사전 매칭 {len(pre_fill)}개 포함)")
     return fill_data
 
 
