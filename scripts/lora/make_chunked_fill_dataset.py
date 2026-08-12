@@ -68,9 +68,7 @@ def main():
             if fpath not in render_cache:
                 try:
                     doc = parse_hwpx(fpath)
-                    render_cache[fpath] = {
-                        grid.key: grid.render(mark_blanks=True)
-                        for grid in doc.tables}
+                    render_cache[fpath] = {g.key: g for g in doc.tables}
                 except Exception:
                     render_cache[fpath] = None
             renders = render_cache[fpath]
@@ -82,15 +80,26 @@ def main():
                 tkey = f"s{m.group(1)}_t{m.group(2)}" if m else "_misc"
                 by_table.setdefault(tkey, []).append((cid, val))
             for tkey, cells in by_table.items():
-                render = renders.get(tkey, "")
+                grid = renders.get(tkey)
+                render = grid.render(mark_blanks=True) if grid else ""
                 for c0 in range(0, len(cells), CHUNK_FIELDS):
                     chunk = cells[c0:c0 + CHUNK_FIELDS]
+                    # v13: 거대 표는 행-윈도 렌더 (런타임과 동일 규칙)
+                    if grid is not None and len(render) > 3000:
+                        rows = set()
+                        for cid, _ in chunk:
+                            m = ID_RE.match(str(cid))
+                            if m:
+                                rows.add(int(m.group(3)))
+                        chunk_render = grid.render_row_window(rows, ctx=1)
+                    else:
+                        chunk_render = render
                     blanks = "\n".join(f"- {cid}" for cid, _ in chunk)
                     prompt = (
                         "당신은 교사의 공문 양식을 채우는 비서입니다.\n\n"
                         "## 참고 문서\n(참고 문서 없음)\n\n"
                         f"## 교사 지시사항\n{instr}\n\n"
-                        f"### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)\n{render}\n\n"
+                        f"### 문서 표 구조 (빈칸은 {{셀ID}} 로 표시됨)\n{chunk_render}\n\n"
                         f"### 채워야 할 빈칸 ({len(chunk)}개)\n{blanks}\n\n"
                         "위 참고 문서와 교사 지시를 바탕으로, 각 빈칸에 알맞은 값을 넣으세요.\n"
                         "- id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.")

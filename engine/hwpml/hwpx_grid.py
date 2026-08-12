@@ -206,6 +206,37 @@ class TableGrid:
             lines.append("| " + " | ".join(row_parts) + " |")
         return "\n".join(lines)
 
+    def render_row_window(self, target_rows, ctx: int = 1,
+                          mark_blanks: bool = True) -> str:
+        """거대 표용 행-윈도 렌더 (§42f v13 — 장문 극복 마지막 조각).
+
+        표 헤더행(항상) + 타깃행 ±ctx만 렌더하고 생략 구간은 "…(N행 생략)…"으로.
+        학습·런타임이 같은 윈도를 쓰면 분포가 일치한다(청크 원칙의 행 단위 확장).
+        """
+        full = self.render(mark_blanks=mark_blanks)
+        lines = full.split("\n")
+        head, rows = lines[0], lines[1:]
+        try:
+            hdr = max(1, int(self.header_row_count()))
+        except Exception:
+            hdr = 1
+        keep = set(range(min(hdr, len(rows))))
+        for r in target_rows:
+            for k in range(max(0, r - ctx), min(len(rows), r + ctx + 1)):
+                keep.add(k)
+        out = [head]
+        prev = -1
+        for r in sorted(keep):
+            if r >= len(rows):
+                continue
+            if prev >= 0 and r > prev + 1:
+                out.append(f"| …({r - prev - 1}행 생략)… |")
+            out.append(rows[r])
+            prev = r
+        if prev < len(rows) - 1:
+            out.append(f"| …({len(rows) - 1 - prev}행 생략)… |")
+        return "\n".join(out)
+
 
 @dataclass
 class HwpxDoc:

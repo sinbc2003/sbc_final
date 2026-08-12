@@ -417,7 +417,14 @@ class LLMManager:
                 "temperature": temperature if temp is None else temp,
             }
             if lora_scale is not None and getattr(self, "_lora_loaded", False):
-                payload["lora"] = [{"id": 0, "scale": lora_scale}]
+                # 항상 전체 어댑터 목록을 명시(부분 지정의 상태 잔류 방지, §41h)
+                pl = [{"id": 0, "scale": lora_scale}]
+                if getattr(self, "_fill_lora_loaded", False):
+                    pl.append({"id": 1, "scale": 0.0})
+                payload["lora"] = pl
+            elif lora_scale is None and getattr(self, "_fill_lora_loaded", False)                     and getattr(self, "_fill_request", False):
+                # 채움 요청: 공문 off + 채움 on
+                payload["lora"] = [{"id": 0, "scale": 0.0}, {"id": 1, "scale": 1.0}]
             if not (with_schema and json_schema):
                 # 소형모델 자유 생성의 반복 루프 방어(E2B·E4B 실측, §41h).
                 # ⚠ repeat_penalty는 프롬프트(제목) 토큰까지 억제해 주제 이탈 유발
@@ -581,7 +588,18 @@ class LLMManager:
             # 이 llama.cpp 빌드는 --lora-scaled를 'FNAME:SCALE' 단일 인자로 받고
             # FNAME의 첫 ':'에서 분리한다 → Windows 드라이브 문자 'D:'와 충돌(콜론 2개).
             # cwd를 어댑터 폴더로 두고 콜론 없는 파일명만 넘겨 회피(실측).
-            cmd += ["--lora-scaled", f"{lora_path.name}:0.0"]
+            lora_arg = f"{lora_path.name}:0.0"
+            # 채움 전용 어댑터(§42f v12+) — 설정 fill_lora가 있으면 id 1로 동시
+            # 프리로드(둘 다 scale 0). 요청별로 생성=id0, 채움=id1만 켠다.
+            fill_name = (self._config.get("fill_lora") or "").strip()
+            self._fill_lora_loaded = False
+            if fill_name:
+                fp = lora_path.parent / (fill_name if fill_name.endswith(".gguf")
+                                         else fill_name + ".gguf")
+                if fp.exists():
+                    lora_arg += f",{fp.name}:0.0"
+                    self._fill_lora_loaded = True
+            cmd += ["--lora-scaled", lora_arg]
             lora_cwd = str(lora_path.parent)
 
         # 기동 실패 진단을 위해 출력을 로그 파일로 남긴다(기존 DEVNULL은

@@ -908,7 +908,18 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
             continue
         render = grid.render(mark_blanks=True)
         for i in range(0, len(fs), _GRID_CHUNK_FIELDS):
-            sections.append((render, fs[i:i + _GRID_CHUNK_FIELDS]))
+            part = fs[i:i + _GRID_CHUNK_FIELDS]
+            # v13: 거대 표는 청크별 행-윈도 렌더 — 타깃 행 주변만 노출해
+            # 절단 없이 전 행 커버(학습 v13과 동일 규칙 = 분포 일치).
+            if len(render) > 3000:
+                rows = set()
+                for f in part:
+                    m2 = ID_RE.match(str(f["id"]))
+                    if m2:
+                        rows.add(int(m2.group(3)))
+                sections.append((grid.render_row_window(rows, ctx=1), part))
+            else:
+                sections.append((render, part))
     for i in range(0, len(misc), _GRID_CHUNK_FIELDS):
         sections.append(("", misc[i:i + _GRID_CHUNK_FIELDS]))
 
@@ -962,7 +973,8 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
             log(f"  청크 {i+1}/{len(chunks)}: 빈칸 {len(fields)}개")
         votes = int(config.get("fill_votes", 1) or 1)
         if votes <= 1:
-            resp = _call_llm(prompt, provider, model, config, json_schema=schema)
+            resp = _call_llm(prompt, provider, model, config, json_schema=schema,
+                             fill=True)
             fill_data.update(_parse_fill_response(resp, ids))
         else:
             # k-표결 — temp>0 샘플 k개에서 셀별 다수결(동수는 최초 응답 우선).
@@ -972,7 +984,8 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
             vote_cfg["temperature"] = float(config.get("vote_temperature", 0.6))
             per_id: dict = {}
             for _ in range(votes):
-                r = _call_llm(prompt, provider, model, vote_cfg, json_schema=schema)
+                r = _call_llm(prompt, provider, model, vote_cfg,
+                              json_schema=schema, fill=True)
                 for k, v in _parse_fill_response(r, ids).items():
                     per_id.setdefault(k, Counter())[str(v)] += 1
             fill_data.update(
@@ -1198,7 +1211,7 @@ def _extract_text(path: str, ext: str, temp_dir: str, log) -> str:
 # ── LLM 호출 ──
 
 def _call_llm(prompt: str, provider: str, model: str, config: dict,
-              json_schema: dict | None = None) -> str:
+              json_schema: dict | None = None, fill: bool = False) -> str:
     """llm_manager를 통한 멀티 프로바이더 LLM 호출.
 
     json_schema가 있으면 로컬은 GBNF 강제, API는 소프트 강제(generate_chat 내부).
@@ -1235,11 +1248,17 @@ def _call_llm(prompt: str, provider: str, model: str, config: dict,
         {"role": "user", "content": prompt},
     ]
 
-    return mgr.generate_chat(
-        messages,
-        max_tokens=config.get("max_tokens", 4000),
-        temperature=config.get("temperature", 0.2),
-        provider=provider,
-        model=model_name,
-        json_schema=json_schema,
-    )
+    # 채움 요청 표시(로컬 전용): fill_lora 프리로드 시 채움 어댑터(id1)만 켬 §42f
+    if fill:
+        mgr._fill_request = True
+    try:
+        return mgr.generate_chat(
+            messages,
+            max_tokens=config.get("max_tokens", 4000),
+            temperature=config.get("temperature", 0.2),
+            provider=provider,
+            model=model_name,
+            json_schema=json_schema,
+        )
+    finally:
+        mgr._fill_request = False
