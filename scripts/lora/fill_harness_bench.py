@@ -19,6 +19,12 @@ from engine.hwpml.hwpx_grid import parse_hwpx, extract_blank_fields  # noqa: E40
 PAIRS = sys.argv[1] if len(sys.argv) > 1 else r"D:/lora_data/fill_eval_s777/fill_pairs.jsonl"
 SRC = Path(sys.argv[2] if len(sys.argv) > 2 else r"D:/lora_data/form_bench/hwpx_converted")
 PORT = sys.argv[3] if len(sys.argv) > 3 else "8410"
+# 4번째 인자: 지시문 교체본 [{"i":N,"instruction":...}] (자유문장 평가 §42h)
+INSTR_OVERRIDE = {}
+if len(sys.argv) > 4:
+    INSTR_OVERRIDE = {d["i"]: d["instruction"]
+                      for d in __import__("json").load(
+                          open(sys.argv[4], encoding="utf-8"))}
 norm = lambda s: re.sub(r"\s+", " ", str(s)).strip()  # noqa: E731
 
 
@@ -70,8 +76,10 @@ def build_prompt(instruction, grid, fields):
 
 def main():
     docs = []
-    for line in open(PAIRS, encoding="utf-8"):
+    for li, line in enumerate(open(PAIRS, encoding="utf-8")):
         r = json.loads(line)
+        if li in INSTR_OVERRIDE:
+            r["instruction"] = INSTR_OVERRIDE[li]
         g = r["output"] if isinstance(r["output"], dict) else json.loads(r["output"])
         key = list(g.keys())[0]
         gold = {it["id"]: norm(it["값"]) for it in g[key]
