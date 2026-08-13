@@ -593,7 +593,16 @@ def _is_placeholder(text: str) -> bool:
         return True
     core = s.replace(" ", "")
     # 자리표시 글자로만 구성 + 길이 2+ (단일 ○/O 같은 OX 데이터 오인 방지)
-    return len(core) >= 2 and all(ch in _PLACEHOLDER_CHARS for ch in core)
+    if len(core) >= 2 and all(ch in _PLACEHOLDER_CHARS for ch in core):
+        return True
+    # 견본혼합형(§42l, 백로그 §32): "대전○○초"·"정○○"·"(월). (일).(요일)"처럼
+    # 실문자와 ○류가 섞인 예시 값 = 채워야 할 견본 행. ○류 2자 이상이면 견본
+    # (OX 데이터는 셀당 1자라 안전). 길이 상한 30자.
+    return len(s) <= 30 and (
+        sum(1 for ch in core if ch in "○◯〇") >= 2  # □■ 제외(체크박스 데이터 보호)
+        # 날짜 스캐폴드 "(월). (일).(요일)": 셀 전체가 괄호·점·월일요뿐일 때만
+        # ("날짜(요일)" 같은 라벨 오인 방지 — v4 실측 FP)
+        or bool(re.fullmatch(r"[\s().월일요~\-]+", s)))
 
 
 def _is_fillable(field: dict) -> bool:
@@ -795,6 +804,23 @@ def _parse_instruction_pairs(instruction: str) -> dict:
             if lab and val and len(lab) <= 60 and not val.startswith("//"):
                 pairs.setdefault(_norm_label(lab), val)
     return pairs
+
+
+_TYPE_RULES = [
+    # (라벨 키워드, 값 필수 패턴) — 위반 시 기각(재질의·승인 패널로) §42l
+    (re.compile(r"연락처|전화|핸드폰|휴대|팩스"), re.compile(r"\d[\d\-() ~.]{5,}")),
+    (re.compile(r"날짜|일시|일자|년월일|기간|기한"), re.compile(r"\d")),
+    (re.compile(r"인원|명수|횟수|금액|예산|수량|번호"), re.compile(r"\d")),
+    (re.compile(r"이메일|e-?mail|전자우편", re.I), re.compile(r"@")),
+]
+
+
+def _type_suspect(label: str, value: str) -> bool:
+    """라벨-값 타입 불일치 기각(§42l — '연락처에 사람 이름' 류 오배치 방어)."""
+    for lab_re, val_re in _TYPE_RULES:
+        if lab_re.search(label or "") and not val_re.search(value or ""):
+            return True
+    return False
 
 
 _SIGNATURE_RE = re.compile(r"서\s*명|\(인\)|（인）|날인|사인|signature", re.I)
@@ -1057,11 +1083,62 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
             return True
         # 역방향: 값 안에 자기 라벨이 통째로("12×담당교사 서명" 류 변형 포함)
         return len(nl) >= 4 and nl in nv
-    dropped = [k for k, v in fill_data.items() if _suspect(k, v)]
+    raw_labels = {f["id"]: str(f.get("label") or "") for f in grid_fields}
+    dropped = [k for k, v in fill_data.items()
+               if _suspect(k, v) or _type_suspect(raw_labels.get(k, ""), str(v))]
     for k in dropped:
         del fill_data[k]
     if dropped:
-        log(f"라벨 에코/예시 기각: {len(dropped)}건 (검토 패널로 위임)")
+        log(f"에코/타입 기각: {len(dropped)}건 (검토 패널로 위임)")
+
+    # ── 완결성 재질의(§42l): 후보인데 미채움인 셀 1회 추가 질의 —
+    # 소형모델의 확률적 생략(행 누락 등)을 구조적으로 방어. 재질의에도
+    # 안 나오면 '알 수 없음'으로 존중(빈칸 유지 → 승인 패널 몫).
+    if config.get("fill_retry", True):
+        missing = [f for f in grid_fields
+                   if f["id"] not in fill_data and f["id"] not in pre_fill]
+        if missing and len(missing) < len(grid_fields):
+            log(f"완결성 재질의: 미채움 {len(missing)}개 재시도")
+            tbl_map = {g.key: g for g in grid_doc.tables}
+            by_tbl2: dict = {}
+            for f in missing:
+                m2 = ID_RE.match(str(f["id"]))
+                key2 = f"s{m2.group(1)}_t{m2.group(2)}" if m2 else "_misc"
+                by_tbl2.setdefault(key2, []).append(f)
+            for key2, fs2 in by_tbl2.items():
+                grid2 = tbl_map.get(key2)
+                render2 = grid2.render(mark_blanks=True) if grid2 else ""
+                if grid2 and len(render2) > 3000:
+                    rows2 = set()
+                    for f in fs2:
+                        m2 = ID_RE.match(str(f["id"]))
+                        if m2:
+                            rows2.add(int(m2.group(3)))
+                    render2 = grid2.render_row_window(rows2, ctx=1)
+                for c0 in range(0, len(fs2), _GRID_CHUNK_FIELDS):
+                    part2 = fs2[c0:c0 + _GRID_CHUNK_FIELDS]
+                    ids2 = {f["id"] for f in part2}
+                    schema2 = _build_fill_schema(sorted(ids2))
+                    struct2 = ("### 문서 표 구조 (빈칸은 {셀ID} 로 표시됨)\n"
+                               + render2 + "\n\n") if render2 else ""
+                    prompt2 = (
+                        "당신은 교사의 공문 양식을 채우는 비서입니다.\n\n"
+                        "## 참고 문서\n"
+                        + (context_text if context_text else "(참고 문서 없음)")
+                        + "\n\n## 교사 지시사항\n"
+                        + (instruction if instruction else "(없음)") + "\n\n"
+                        + struct2
+                        + f"### 아직 비어 있는 빈칸 ({len(part2)}개) — "
+                        "참고 문서와 지시에서 값을 찾을 수 있으면 채우세요\n"
+                        + _render_blank_list(part2) + "\n\n"
+                        "- 값을 알 수 없는 빈칸은 생략하세요. 서명·날인 칸은 채우지 마세요.\n"
+                        "- id는 목록의 id를 정확히 그대로 쓰세요.")
+                    r2 = _call_llm(prompt2, provider, model, config,
+                                   json_schema=schema2, fill=True)
+                    for k, v in _parse_fill_response(r2, ids2).items():
+                        if not _suspect(k, v) and not _type_suspect(
+                                raw_labels.get(k, ""), str(v)):
+                            fill_data.setdefault(k, v)
     fill_data = {**fill_data, **pre_fill}  # 사전 매칭이 항상 우선
     log(f"배치 결정: {len(fill_data)}개 항목 (사전 매칭 {len(pre_fill)}개 포함)")
     return fill_data
