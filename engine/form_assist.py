@@ -797,6 +797,43 @@ def _parse_instruction_pairs(instruction: str) -> dict:
     return pairs
 
 
+def _scan_freeform_pairs(instruction: str, fields: list) -> dict:
+    """자유문장 라벨-스캔 — 문서 라벨을 지시문에서 찾아 조사(에/엔/은/는/을/를,
+    콜론) 뒤의 값을 다음 라벨/구두점 경계까지 취한다. 정형 파서 0쌍일 때 전용."""
+    text = instruction or ""
+    occs = []
+    for f in fields:
+        lab = f.get("label") or ""
+        nl = _norm_label(lab)
+        if len(nl) < 3:
+            continue
+        pat = r"\s*".join(re.escape(c) for c in lab if not c.isspace())
+        for m in re.finditer(pat, text):
+            occs.append((m.start(), m.end(), nl))
+    if not occs:
+        return {}
+    occs.sort(key=lambda x: (x[0], -(x[1] - x[0])))
+    sel, last = [], -1
+    for s, e, nl in occs:
+        if s >= last:
+            sel.append((s, e, nl))
+            last = e
+    pairs = {}
+    for j, (s, e, nl) in enumerate(sel):
+        rest = text[e:]
+        m = re.match(r"\s*(?:에는|에도|엔|에|은|는|을|를|도)?\s*[:：=]?\s*", rest)
+        vs = e + (m.end() if m else 0)
+        ve = sel[j + 1][0] if j + 1 < len(sel) else len(text)
+        val = text[vs:ve]
+        # 값 경계: 콤마·마침표·개행 앞까지 (날짜 "2026. 7. 8." 내부 ". "은 보존
+        # 못 하므로 콤마·개행 우선, 마침표는 뒤에 공백+한글이 올 때만 경계)
+        val = re.split(r"[,\n]|(?<=[.\d])\.\s+(?=[가-힣])", val)[0]
+        val = re.sub(r"\s*(?:로|으로)?\s*(?:넣어|넣고|기입|입력|채워|적어|해)\S*\s*$", "", val).strip(" .")
+        if val and len(val) <= 60:
+            pairs.setdefault(nl, val)
+    return pairs
+
+
 def prematch_fields(instruction: str, fields: list,
                     all_fields: list | None = None) -> tuple:
     """지시문 명시 쌍을 코드가 100% 정밀로 선채움 — "지능을 코드로" (§42 Stage1).
@@ -806,6 +843,8 @@ def prematch_fields(instruction: str, fields: list,
     반환: (선채움 {id:값}, 잔여 필드 목록).
     """
     pairs = _parse_instruction_pairs(instruction)
+    # (실험 §42i: 자유문장 라벨-스캔 폴백은 5/5 오배치로 기각 — 자유문장은
+    # 라벨을 바꿔 말하므로 리터럴 매칭 불가. 의미 매칭은 LLM 몫으로 유지.)
     if not pairs:
         return {}, fields
     by_norm: dict = {}
@@ -990,6 +1029,22 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
                     per_id.setdefault(k, Counter())[str(v)] += 1
             fill_data.update(
                 {k: c.most_common(1)[0][0] for k, c in per_id.items()})
+    # 라벨 에코·예시 복사 기각(§42h 오류 해부: 회수 가능 11/19건) —
+    # 예측값이 자기 라벨과 같거나(에코), 라벨 안에 통째로 들어있는 긴 문자열
+    # (라벨의 "(예시)…" 복사)이면 무효. 짧은 정당값("남"/"여" 등)은 보호.
+    labels = {f["id"]: _norm_label(f.get("label")) for f in grid_fields}
+    def _suspect(cid, val):
+        nv, nl = _norm_label(val), labels.get(cid, "")
+        if not nv or not nl:
+            return False
+        if nv == nl:
+            return True
+        return len(nv) >= 6 and nv in nl
+    dropped = [k for k, v in fill_data.items() if _suspect(k, v)]
+    for k in dropped:
+        del fill_data[k]
+    if dropped:
+        log(f"라벨 에코/예시 기각: {len(dropped)}건 (검토 패널로 위임)")
     fill_data = {**fill_data, **pre_fill}  # 사전 매칭이 항상 우선
     log(f"배치 결정: {len(fill_data)}개 항목 (사전 매칭 {len(pre_fill)}개 포함)")
     return fill_data
