@@ -123,7 +123,7 @@ def run_form_assist(
                 grid_fields = [
                     f for f in extract_blank_fields(grid_doc, include_filled=True)
                     if f.get("value_type") in ("text", "paren", "colon")
-                    and _is_fillable(f)
+                    and _is_fillable(f) and not _is_signature_field(f)
                 ]
                 grid_fields += extract_body_blanks(output_template["path"])  # 본문 ___
                 grid_fields += _extract_hwpx_fields(output_template["path"])  # 누름틀
@@ -797,6 +797,19 @@ def _parse_instruction_pairs(instruction: str) -> dict:
     return pairs
 
 
+_SIGNATURE_RE = re.compile(r"서\s*명|\(인\)|（인）|날인|사인|signature", re.I)
+
+
+def _is_signature_field(f: dict) -> bool:
+    """서명·날인 칸은 자필 영역 — 채움 후보에서 원천 제외(§42k, Opus급 갭 실측).
+
+    Opus는 라벨 의미로 알아서 비웠지만 소형모델은 채우려 든다 →
+    판단을 코드로 옮긴다. (지시문이 서명 값을 명시하면 사전 매칭이
+    라벨 유일 일치로 여전히 채울 수 있음 — 후보 제외는 LLM 경로만.)
+    """
+    return bool(_SIGNATURE_RE.search(str(f.get("label") or "")))
+
+
 def _scan_freeform_pairs(instruction: str, fields: list) -> dict:
     """자유문장 라벨-스캔 — 문서 라벨을 지시문에서 찾아 조사(에/엔/은/는/을/를,
     콜론) 뒤의 값을 다음 라벨/구두점 경계까지 취한다. 정형 파서 0쌍일 때 전용."""
@@ -1006,6 +1019,7 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
 - 값을 알 수 없거나 채울 필요가 없는 빈칸은 생략하세요.
 - 이미 의미 있는 값이 들어 있는 칸은 그대로 두세요(비어 있을 때만 채움).
 - 값에는 빈칸에 들어갈 내용만 쓰세요 — 라벨이나 기호("(인)", "성명:" 등)를 반복하지 마세요.
+- 서명·날인 칸과 표 제목 칸은 채우지 마세요. 지시문이 비우라는 칸은 생략하세요.
 - id는 위 '채워야 할 빈칸' 목록의 id를 정확히 그대로 쓰세요.
 """
         if len(chunks) > 1:
@@ -1039,7 +1053,10 @@ def _plan_grid_fill(grid_doc, grid_fields: list, context_text: str, instruction:
             return False
         if nv == nl:
             return True
-        return len(nv) >= 6 and nv in nl
+        if len(nv) >= 6 and nv in nl:
+            return True
+        # 역방향: 값 안에 자기 라벨이 통째로("12×담당교사 서명" 류 변형 포함)
+        return len(nl) >= 4 and nl in nv
     dropped = [k for k, v in fill_data.items() if _suspect(k, v)]
     for k in dropped:
         del fill_data[k]
