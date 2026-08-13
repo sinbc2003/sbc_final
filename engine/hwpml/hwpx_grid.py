@@ -834,6 +834,15 @@ def fill_hwpx_cells(src_path: str, out_path: str, fill_map: dict, log=None,
                                                         int(ch.get("colAddr") or -1))
                                                 break
                                         if addr in wanted:
+                                            # 중첩표 래퍼 셀 채움 금지(§42j 실측):
+                                            # 내부 표를 밀어버려 한/글 렌더가
+                                            # 통째로 붕괴한다(kordoc·자체 파서는
+                                            # 통과하는 렌더 전용 함정).
+                                            if any(_ln(d) == "tbl"
+                                                   for d in tc.iter()):
+                                                if log:
+                                                    log(f"중첩표 셀 스킵: t{t_idx} {addr}")
+                                                continue
                                             final, ok = _compose_slot_value(
                                                 _elem_text(tc), wanted[addr])
                                             if not ok:
