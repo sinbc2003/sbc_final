@@ -4,28 +4,37 @@
 > 작업 경로(현재): `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop)
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
-> ## ⏩ 다음 세션은 여기부터 (2026-08-10 08시 갱신)
+> ## ⏩ 다음 세션은 여기부터 (2026-08-14 13:40 갱신)
 >
-> ### 🔴 지금 할 일 — **v10 재학습 재실행 (재부팅 직후 첫 작업)**
-> **상태(§41e)**: 착수했으나 **종료 불가 orphan `llama-server`(PID 24952, VRAM 2.8GB 상주·권한 거부)** 때문에 스필 발생(s/it 8.4→29초) → 중단. **체크포인트 생성 전이라 손실 없음.** 사용자가 **재부팅으로 orphan 회수** → 재부팅 후 아래를 **그대로** 재실행하면 됨.
-> ⚠️ **실행 전 반드시** `nvidia-smi --query-gpu=memory.free --format=csv` 로 **여유 15GB 이상** 확인(12.87GB로는 부족함이 실측됨). 첫 5스텝의 s/it가 **~9초 부근에서 안정**하면 정상, **단조 상승하면 스필**이니 즉시 중단하고 GPU 점유부터 정리.
-> 재료·스크립트 준비 완료(E2B 약 1시간 20분, 총 513스텝):
-> ```
-> TMP=D:/tmp TEMP=D:/tmp HF_HOME=D:/hf_home PYTHONUTF8=1 \
->   D:/lora_train/venv/Scripts/python.exe scripts/lora/train_lora.py \
->   --model D:/models/hf/gemma-4-E2B-it --data D:/lora_data/dataset_v10 \
->   --out D:/lora_train/out/gongmun_g4e2b_v10 --max-len 2048 --batch 1 \
->   --grad-accum 16 --no-4bit --no-eval
-> ```
-> 이후: `llama.cpp/convert_lora_to_gguf.py out/gongmun_g4e2b_v10/final --base D:/models/hf/gemma-4-E2B-it --outfile D:/models/loras/gongmun_g4e2b_v10.gguf` → **A/B(아래 검증 프로토콜 준수)** → 통과 시 `packaging/stage_bundle.py`의 `LORA`·`local_lora`를 v10으로 → 재빌드 체인.
-> **왜 하는가**: §41d — 현행 v9는 **학습 셀의 절반이 원리상 학습 불가능한 오염 데이터**로 학습됨. 정화본(오염 0%)으로 재학습 시 채움 개선 기대.
+> ### 🎯 상시 지시(사용자): 로컬 소형모델의 표 채움 + 보고서 작성 = **Opus 수준** 지속 루프
+> 사이클: 실물 PDF 비전검수 → 원인 분해 → 하네스 우선(지능을 코드로) → 남는 것만 학습 → 미학습 벤치 → 텔레그램 보고. 판정 기준 = 미학습 양식 실물을 Opus 산출과 나란히 놓고 차이 셀 수를 세는 것.
 >
 > ### 현재 상태 (한 줄)
-> **배포판 = TeacherFlow + E2B v9 어댑터.** NSIS 92.7MB(`E:\sbc_lab\tf_build\cargo_target\release\bundle\nsis\`) + 포터블 3.66GB(`E:\sbc_lab\tf_build\TeacherFlow-portable\`). 오프라인 테스트 **130 PASS**. 최신 커밋 `e7b81d6`.
+> **채움 채택 = fill_g4e4b_v14.gguf** (미학습 자유문장 **96%**·정형 93%, Opus -4%p) + 하네스 완비(§42 시리즈). 공문 생성 = E4B v10 / E2B v9(배포판). 배포 번들은 아직 E2B v9 그대로(채움 어댑터 미통합 — fill_lora 배선은 §42g에 있고 기본 off).
 >
-> ### 최근 트랙 요약 (§32~§41d, 8/8~8/10)
-> | 영역 | 결과 |
-> |---|---|
+> ### 다음 카드 (우선순위)
+> 1. **v15 견본행 교육 데이터** — 견본행 표 상단 1~4행 혼선(순번→날짜 복사)의 유일 잔여 처방. make_fill_dataset 확장: 표 상단에 견본값 주입 → 실값 교체를 gold로.
+> 2. **보고서 본문 작성 기능(신규)** — 서식3류 "가. 목적:"/"1) 교육 횟수:" 본문 라인은 빈칸 목록에 없어 전 모델 미채움. 콜론말미 본문 라인 슬롯 추출 + 생성 어댑터 연동.
+> 3. GRPO(채움=자동 채점 보상, RL 이상 과제) → 확신도 승인 패널(체감 100%).
+> 4. 제품 통합: fill_lora 활성(스위칭 안정성 §41h 재검증 필수), 번들 b10338 업그레이드, 코드서명.
+>
+> ### 핵심 실측 궤적 (미학습 양식·엄정)
+> 베이스 50~62% → +하네스 83~88% → v12 청크증류 94%(정형) → **v14 96%(자유문장)**. 문서통째 학습(v11)은 3% 붕괴 — **학습·추론 분포 일치(청크)가 전부**. Opus/Sonnet 교사 100% 검증.
+>
+> ### ⚠️ 함정 (반복 실측)
+> - **중첩표 래퍼 셀 주입 = 한/글 렌더 통째 붕괴**(kordoc·파서는 통과) — 가드 있음(§42j). 한/글 PDF 변환은 **파일당 새 Hwp 인스턴스**.
+> - E4B 학습은 주간 데스크톱 활성 시 스필(~400s/it) — 야간 권장. r16@1536이 실용 프로필.
+> - 어댑터 A/B는 **고정 프로토콜만**(2어댑터 스위칭 불안정 §41h). 검증 서버 = b10338 vulkan + `--reasoning off --reasoning-budget 0 --jinja` + (E4B 어댑터 시) `chat_template_kwargs:{"enable_thinking":false}`.
+> - 워커 llama-server가 GPU 점유 시: `POST 127.0.0.1:9090/worker {"action":"stop"}` (X-Api-Key: sbc-local-key).
+> - 견본혼합·서명·에코·타입 가드는 engine/form_assist.py §42k~l — 벤치 만들 때 제품 필터(`_is_fillable`+`_is_signature_field`) 반드시 미러링.
+>
+> ### 환경
+> - 작업 경로: `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop RTX5080)
+> - 학습 venv `D:\lora_train\venv`(Py3.10) · 데이터 `D:\lora_data`(dataset_fill_v13=청크 2,124) · 어댑터 `D:\models\loras` · 평가 `fill_eval_unseen`+s3001/s3002+`instr_freeform.json`(자유문장) · 벤치 `scripts/lora/fill_harness_bench.py`
+> - 텔레그램 보고: `E:\sbc_lab\tf_build\v10_chain\send_tg.py` (--msg/--doc)
+> - 디스크: D: 여유 7.8GB(v1~v8 원본 정리됨) · 대용량은 E:
+
+---|---|
 > | 표 감지 | header_row_count 병리 수정 **+134%** · 부분슬롯(괄호형 `( )`·콜론말미형) · **중첩표 왕복 99.8%** |
 > | 승인 UX | 라이브 액션·채움 **둘 다** 검토 패널 경유(§33·§33b) + **피드백 로그**(사용자 수정값=SFT 골드, §36) |
 > | LoRA | v9 멀티태스크(공문+채움) 채택 · **E4B 탈락**(엄정 31% vs 11%, §41·§41b) |
