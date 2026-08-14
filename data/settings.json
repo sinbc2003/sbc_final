@@ -9,9 +9,12 @@
   },
   "llm": {
     "default_provider": "local",
-    "local_model": "E2B",
-    "local_lora": "gongmun_g4e2b_v9",
+    "local_model": "gemma-4-E4B-it-Q4_K_M",
+    "local_lora": "gongmun_g4e4b_v10",
+    "fill_lora": "fill_g4e4b_v14",
+    "llama_server_bin": "E:/sbc_lab/llama_test/b10338/llama-server.exe",
     "models_dirs": [
+      "E:/sbc_lab/gguf_work",
       "D:/models/teacherflow/e2b"
     ],
     "local_context_size": 0,

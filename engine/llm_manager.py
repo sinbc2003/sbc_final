@@ -416,6 +416,11 @@ class LLMManager:
                 "max_tokens": max_tokens,
                 "temperature": temperature if temp is None else temp,
             }
+            # gemma-4 계열은 json_schema가 사고를 각성시켜 content를 0자로 삼킨다(§41f).
+            # 서버 플래그(--reasoning off/budget 0)만으로 부족해 템플릿 변수로도 끈다.
+            # b10338+ 만 이 kwarg를 존중(b10298은 무시 — 무해).
+            if self._config.get("local_reasoning", "off") == "off":
+                payload["chat_template_kwargs"] = {"enable_thinking": False}
             if lora_scale is not None and getattr(self, "_lora_loaded", False):
                 # 항상 전체 어댑터 목록을 명시(부분 지정의 상태 잔류 방지, §41h)
                 pl = [{"id": 0, "scale": lora_scale}]
@@ -529,9 +534,14 @@ class LLMManager:
         if configured and Path(configured).exists():
             return configured
         from engine.paths import ROOT
+        # ⚠ 순서 주의: `llama_cpp/bin/`은 2026-04 CUDA 구빌드로 --reasoning off가
+        # 먹지 않아 사고 토큰이 응답을 삼킨다(content 0자) → 최후 폴백으로만 둔다.
+        # 개발기 검증 빌드는 b10338 vulkan.
         for candidate in [
             str(ROOT / "llama" / "llama-server.exe"),  # 배포 번들(리소스 루트/llama)
             "C:/Users/sinbc/llama_cpp/llama-server.exe",
+            "E:/sbc_lab/llama_test/b10338/llama-server.exe",
+            "D:/models/llama_cpp/vulkan/llama-server.exe",
             "D:/models/llama_cpp/bin/llama-server.exe",
             "llama-server",
         ]:
@@ -577,6 +587,10 @@ class LLMManager:
         reasoning = self._config.get("local_reasoning", "off")
         if reasoning in ("off", "on", "auto"):
             cmd += ["--reasoning", reasoning]
+        # ⚠ --reasoning off 단독으로는 새 빌드(b10338)에서 사고가 완전히 안 꺼진다.
+        # 검증 프로토콜과 동일하게 예산 0을 함께 준다(§42 벤치 기준).
+        if reasoning == "off":
+            cmd += ["--reasoning-budget", "0"]
 
         # LoRA 어댑터 프리로드 — 기본 스케일 0(OFF): 추출·분류·벤치는 베이스 그대로,
         # 생성 요청만 per-request lora scale=1.0으로 활성화(가이드 §5 배선).
