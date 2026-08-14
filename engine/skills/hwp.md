@@ -63,6 +63,7 @@
 ```
 - 누름틀(양식 필드)이 있으면 set_field를 우선 사용 (공문 빈칸은 대부분 누름틀).
 - create_table의 data는 rows×cols 크기의 2차원 배열 — **항상 내용을 채워서** 만드세요.
+- **표를 만들며 내용을 넣을 때는 반드시 data 한 방에.** 표를 만든 직후 replace_cell_content로 채우려 하지 마세요 — 새 표의 블록 번호는 아직 목록에 없어서 지어낸 번호가 됩니다.
 - save_as format: "HWP" | "HWPX" | "PDF"
 
 ### 서식 (새로 만든 표/텍스트 — 인덱스 기반, block_id 불필요)

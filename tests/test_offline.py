@@ -647,12 +647,116 @@ def t_presets():
                   ok_node and ok_param)
 
 
+def t_table_spec():
+    """create_table 치수 정규화 — 소형모델 선언·data 어긋남 흡수 (§43 라이브 표)."""
+    print("[normalize_table_spec]")
+    from engine.hwp.editor import normalize_table_spec, HwpEditor
+
+    # 정상: 선언과 data 일치 → 그대로
+    r, c, d = normalize_table_spec(2, 3, [["아침", "점심", "저녁"], ["죽", "밥", "면"]])
+    check("일치 시 무변형", (r, c) == (2, 3) and d[0] == ["아침", "점심", "저녁"])
+    # 선언 3x3인데 data 4행(초과) → data가 이김
+    r, c, d = normalize_table_spec(3, 3, [["a"], ["b"], ["c"], ["d"]])
+    check("data 초과 시 행 확장", r == 4 and len(d) == 4)
+    # 선언 5행에 data 1행(헤더만) → 선언 존중, 빈 행 패딩
+    r, c, d = normalize_table_spec(5, 3, [["h1", "h2", "h3"]])
+    check("선언 초과 시 빈 행 패딩", r == 5 and d[4] == ["", "", ""])
+    # ragged 행 → 최장 열로 패딩 (탭 워킹 정합의 핵심)
+    r, c, d = normalize_table_spec(2, 2, [["아침", "점심", "저녁"], ["죽"]])
+    check("ragged 패딩", c == 3 and d[1] == ["죽", "", ""])
+    # 1D 배열 → 한 행
+    r, c, d = normalize_table_spec(0, 0, ["아침", "점심", "저녁"])
+    check("1D→한 행", (r, c) == (1, 3) and d[0] == ["아침", "점심", "저녁"])
+    # records 형 → 헤더+값
+    r, c, d = normalize_table_spec(0, 0, [{"끼니": "아침", "메뉴": "죽"}])
+    check("records→헤더+값", (r, c) == (2, 2) and d[0] == ["끼니", "메뉴"] and d[1] == ["아침", "죽"])
+    # 문자열 rows/None cols/비수치 → 안전 보정
+    r, c, d = normalize_table_spec("3", None, [["x", "y"]])
+    check("문자열·None 치수 보정", r == 3 and c == 2)
+    # data 없음 → 기존 동작(선언 치수)
+    r, c, d = normalize_table_spec(4, 2, None)
+    check("data 없음 무변형", (r, c, d) == (4, 2, None))
+    # 상한 캡
+    r, c, d = normalize_table_spec(0, 0, [["x"] * 99] * 999)
+    check("치수 상한 캡", r <= 100 and c <= 30)
+
+    # 가짜 COM으로 탭 워킹 착지 검증 — ragged 입력이 셀 밀림 없이 정확 배치되는가
+    class FakeHwp:
+        def __init__(self):
+            self.grid, self.r, self.c = None, 0, 0
+        def create_table(self, rows, cols):
+            self.rows, self.cols = rows, cols
+            self.grid = [["" for _ in range(cols)] for _ in range(rows)]
+        def insert_text(self, t):
+            self.grid[self.r][self.c] += t
+        def TableRightCell(self):
+            self.c += 1
+            if self.c >= self.cols:  # 행 끝 → 다음 행 첫 셀 (한/글 탭 동작)
+                self.r, self.c = self.r + 1, 0
+
+    fake = FakeHwp()
+    ed = HwpEditor(fake, None)
+    res = ed.create_table(2, 2, [["아침", "점심", "저녁"], ["죽"]])  # 선언 2x2, 실제 2x3 ragged
+    check("가짜COM: 성공 응답", res.get("isSuccess") is True)
+    check("가짜COM: 헤더 정위치", fake.grid[0] == ["아침", "점심", "저녁"])
+    check("가짜COM: 2행 밀림 없음", fake.grid[1] == ["죽", "", ""])
+
+
+def t_merge_table_fills():
+    """create_table 뒤 허구 block_id 채움 → data 병합 (§43, E4B 식단표 실측 재현)."""
+    print("[merge_new_table_fills]")
+    from engine.chat.live_chat import merge_new_table_fills
+    from engine.live_controller import _get_hwp_ctrl
+
+    # E4B가 실제로 냈던 배치 그대로: 헤더만 create + 허구 id 1~2에 행을 \n으로 뭉침
+    batch = [
+        {"action": "create_table", "params": {"rows": 4, "cols": 4,
+         "data": [["구분", "아침", "점심", "저녁"]]}},
+        {"action": "style_table_row", "params": {"table": 1, "row": 0}},
+        {"action": "replace_cell_content", "params": {"block_id": "1",
+         "new_text": "월요일\n밥, 국\n샌드위치\n볶음밥"}},
+        {"action": "replace_cell_content", "params": {"block_id": "2",
+         "new_text": "화요일\n밥, 국\n김밥\n생선구이"}},
+    ]
+    out = merge_new_table_fills([dict(a, params=dict(a["params"])) for a in batch])
+    ct = next(a for a in out if a["action"] == "create_table")
+    check("허구 id 채움 2건 제거", sum(1 for a in out if a["action"] == "replace_cell_content") == 0)
+    check("style 액션 보존", any(a["action"] == "style_table_row" for a in out))
+    check("data 3행으로 병합", len(ct["params"]["data"]) == 3)
+    check("행 분해 정확", ct["params"]["data"][1] == ["월요일", "밥, 국", "샌드위치", "볶음밥"])
+
+    # row_texts 변형도 병합
+    out2 = merge_new_table_fills([
+        {"action": "create_table", "params": {"rows": 2, "cols": 2, "data": [["a", "b"]]}},
+        {"action": "append_table_row", "params": {"block_id": "9", "row_texts": ["c", "d"]}},
+    ])
+    check("row_texts 병합", len(out2) == 1 and out2[0]["params"]["data"] == [["a", "b"], ["c", "d"]])
+
+    # 실존 셀(td) 편집은 불변 — 블록 매니저에 셀 심고 확인
+    ctrl = _get_hwp_ctrl()
+    saved = dict(ctrl._block_manager.blocks)
+    try:
+        ctrl._block_manager.blocks["5"] = Block(id="5", position=(0, 0, 0), block_type="td")
+        out3 = merge_new_table_fills([
+            {"action": "create_table", "params": {"rows": 2, "cols": 2}},
+            {"action": "replace_cell_content", "params": {"block_id": "5", "new_text": "기존셀 수정"}},
+        ])
+        check("실존 셀 편집 보존", any(a["action"] == "replace_cell_content" for a in out3))
+    finally:
+        ctrl._block_manager.blocks = saved
+
+    # create_table 없으면 무변형
+    plain = [{"action": "replace_cell_content", "params": {"block_id": "7", "new_text": "x"}}]
+    check("create 없음 무변형", merge_new_table_fills(list(plain)) == plain)
+
+
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
                t_grid_roundtrip, t_partial_slots, t_related_date, t_feedback_log,
                t_verify_retry,
                t_chunking, t_cancel, t_workflow_envelope,
-               t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift):
+               t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift,
+               t_table_spec, t_merge_table_fills):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

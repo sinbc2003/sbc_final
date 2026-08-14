@@ -29,6 +29,71 @@ from engine.hwp.models import Block, DocumentInfo
 from engine.hwp.blocks import BlockManager
 from engine.hwp.scanner import DocumentScanner
 
+# COM 탭 워킹 상한 — 모델이 거대 배열을 뱉어도 한/글이 수 분간 멈추지 않게.
+_TABLE_MAX_ROWS = 100
+_TABLE_MAX_COLS = 30
+
+
+def normalize_table_spec(rows, cols, data):
+    """create_table 파라미터 정규화 — 셀 밀림의 원천 차단.
+
+    셀 채움이 탭 워킹(TableRightCell)이라 표 치수와 data 치수가 어긋나면
+    내용이 통째로 밀린다. 그런데 rows/cols·data 정합은 GBNF가 강제하지
+    못하는 부분(params는 자유 객체)이라 소형모델이 흔히 어긋나게 낸다
+    (선언 3x3에 data 4행, 행마다 길이 다름, 1D 배열, records 형 등).
+    → 코드가 흡수한다: data가 있으면 치수의 진실원천은 data.
+
+    반환 (rows, cols, data|None). data는 rows×cols로 패딩된 균일 2D(str).
+    """
+    def _to_int(v, fallback=0):
+        try:
+            return max(int(v), 0)
+        except (TypeError, ValueError):
+            return fallback
+
+    rows_i, cols_i = _to_int(rows), _to_int(cols)
+
+    # ── data를 균일 2D 문자열 배열로 강제 ──
+    if isinstance(data, str) and data.strip():
+        try:
+            import json as _json
+            data = _json.loads(data)
+        except (ValueError, TypeError):
+            data = [[data]]  # 파싱 불가 문자열 = 단일 셀
+    if isinstance(data, dict):
+        data = [data]
+    grid: list[list[str]] = []
+    if isinstance(data, (list, tuple)) and len(data) > 0:
+        if all(isinstance(r, dict) for r in data):
+            # records 형([{열: 값}]) → 헤더행 + 값행
+            header = list(data[0].keys())
+            grid.append([str(h) for h in header])
+            for rec in data:
+                grid.append(["" if rec.get(h) is None else str(rec.get(h))
+                             for h in header])
+        elif all(not isinstance(r, (list, tuple, dict)) for r in data):
+            grid.append(["" if c is None else str(c) for c in data])  # 1D = 한 행
+        else:
+            for r in data:
+                if isinstance(r, (list, tuple)):
+                    grid.append(["" if c is None else str(c) for c in r])
+                elif r is not None:
+                    grid.append([str(r)])
+
+    if not grid:
+        # data 없음 — 선언 치수만 신뢰(기존 동작), 최소 1x1 보정
+        return max(rows_i, 1) if rows_i else max(rows_i, 2), \
+            max(cols_i, 1) if cols_i else max(cols_i, 2), None
+
+    # ── 치수 확정: 선언값과 data 중 큰 쪽(선언이 더 크면 빈 행/열 의도 존중) ──
+    n_rows = min(max(rows_i, len(grid)), _TABLE_MAX_ROWS)
+    n_cols = min(max(cols_i, max(len(r) for r in grid)), _TABLE_MAX_COLS)
+    # rows×cols로 절단·패딩 → 탭 워킹 스텝 수가 항상 표와 정확히 일치
+    grid = [(r + [""] * n_cols)[:n_cols] for r in grid[:n_rows]]
+    while len(grid) < n_rows:
+        grid.append([""] * n_cols)
+    return n_rows, n_cols, grid
+
 
 class HwpEditor:
     """blockId 기반 HWP 문서 편집. Inline AI hwp_editor.py의 핵심 패턴 구현."""
@@ -304,6 +369,12 @@ class HwpEditor:
         data: [[셀1, 셀2, ...], [셀1, 셀2, ...], ...]  (행 × 열)
         """
         try:
+            # 모델 선언 치수와 data 치수의 어긋남을 코드가 흡수(셀 밀림 방지).
+            # 정규화 후 data는 rows×cols 균일 2D — 탭 워킹이 절대 안 어긋난다.
+            req = (rows, cols)
+            rows, cols, data = normalize_table_spec(rows, cols, data)
+            if data is not None and req != (rows, cols):
+                logger.info(f"create_table 치수 정규화: 선언 {req} → {rows}x{cols} (data 기준)")
             self.hwp.create_table(rows, cols)
             if data:
                 # 표 생성 후 첫 셀에 커서 위치 → Tab으로 이동하며 채움
@@ -314,7 +385,7 @@ class HwpEditor:
                         # 마지막 셀이 아니면 다음 셀로 이동
                         if not (r_idx == len(data) - 1 and c_idx == len(row) - 1):
                             self.hwp.TableRightCell()
-            filled = f", {sum(len(r) for r in data)}셀 채움" if data else ""
+            filled = f", {sum(1 for r in data for c in r if c)}셀 채움" if data else ""
             return {"isSuccess": True, "message": f"{rows}x{cols} 표 생성 완료{filled}"}
         except Exception as e:
             return {"isSuccess": False, "message": str(e)}

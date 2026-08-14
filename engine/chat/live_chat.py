@@ -120,6 +120,70 @@ def parse_envelope_response(text: str) -> tuple[str, list[dict] | None] | None:
     return reply, actions
 
 
+def merge_new_table_fills(actions: list[dict] | None) -> list[dict] | None:
+    """같은 배치에서 create_table 뒤의 '새 표 채움 시도'를 data 행으로 병합.
+
+    소형모델은 '표 만들고 채워라'를 자주 쪼갠다: create_table(헤더만) 후
+    replace_cell_content를 지어낸 block_id로 (E4B 실측 재현 — 빈 문서
+    식단표에서 헤더행만 만든 뒤 block_id 1~4에 행 전체를 \\n으로 뭉쳐 주입).
+    새 표의 블록 번호는 스캔 목록에 존재하지 않으므로 그 번호는 반드시
+    허구고, 실행하면 엉뚱한 블록을 덮는다. 스킬 지시("data 한 방에")로는
+    막히지 않음을 실측 — 하네스가 흡수한다:
+
+    create_table 이후의 채움류 액션 중 block_id가 현재 스캔의 표 셀이
+    아닌 것을 행 데이터로 해석(row_texts는 그대로, new_text는 \\n 분할)해
+    create_table.data 뒤에 붙이고 배치에서 제거한다. 실존 셀 편집은 불변.
+    치수 정합은 editor.normalize_table_spec이 마무리(선언·data 어긋남 흡수).
+    """
+    if not actions:
+        return actions
+    ct_idx = next((i for i, a in enumerate(actions)
+                   if a.get("action") == "create_table"
+                   and isinstance(a.get("params"), dict)), None)
+    if ct_idx is None:
+        return actions
+
+    # 현재 스캔에 실존하는 표 셀 block_id — 이것만 정당한 셀 편집 대상
+    known_cells: set[str] = set()
+    try:
+        from engine.live_controller import _get_hwp_ctrl
+        bm = _get_hwp_ctrl()._block_manager
+        if bm and bm.blocks:
+            known_cells = {bid for bid, b in bm.blocks.items()
+                           if getattr(b, "block_type", "") == "td"}
+    except Exception:
+        pass  # 스캔 없음(빈 문서 등) = 실존 셀 없음
+
+    ct_params = actions[ct_idx]["params"]
+    data = ct_params.get("data")
+    rows: list = [list(r) if isinstance(r, (list, tuple)) else [r] for r in data] \
+        if isinstance(data, (list, tuple)) else ([] if data is None else [[str(data)]])
+    merged = 0
+    out: list[dict] = []
+    for i, a in enumerate(actions):
+        if i <= ct_idx or a.get("action") not in (
+                "replace_cell_content", "replace_table_row", "append_table_row"):
+            out.append(a)
+            continue
+        p = a.get("params") or {}
+        if str(p.get("block_id", "")) in known_cells:
+            out.append(a)  # 실존 셀 편집 — 건드리지 않음
+            continue
+        row_texts = p.get("row_texts")
+        if isinstance(row_texts, (list, tuple)) and row_texts:
+            rows.append([str(c) for c in row_texts])
+        else:
+            txt = str(p.get("new_text") or "").strip()
+            if not txt:
+                continue  # 내용 없는 허구 id 액션은 그냥 버림
+            rows.append(txt.split("\n"))
+        merged += 1
+    if merged:
+        ct_params["data"] = rows
+        _log.info(f"라이브 표 병합: 허구 block_id 채움 {merged}건 → create_table data {len(rows)}행")
+    return out
+
+
 def parse_actions_response(text: str) -> list[dict] | None:
     """LLM 응답에서 액션 JSON 배열 추출."""
     # ```json ... ``` 블록
@@ -410,6 +474,10 @@ def handle_live_chat(
         actions = parse_actions_response(reply)
         if not actions:
             return {"reply": reply, "actions": None, "results": None}
+
+    # 4.1 새 표 채움 병합 — 허구 block_id 실행을 원천 차단 (preview에도 병합안이 보이게)
+    if app_type == "hwp":
+        actions = merge_new_table_fills(actions)
 
     # 4.5 사용자 친화적 메시지 추출
     if envelope is not None:

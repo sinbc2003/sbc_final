@@ -261,7 +261,9 @@ async def chat_live_stream(req: StreamChatRequest):
     from engine.chat_handler import (
         prepare_live_chat_messages, parse_actions_response, detect_live_fill_intent,
     )
-    from engine.chat.live_chat import build_live_envelope_schema, parse_envelope_response
+    from engine.chat.live_chat import (
+        build_live_envelope_schema, parse_envelope_response, merge_new_table_fills,
+    )
 
     # 채우기 의도 → fill-live 라우팅 (스트림 내부에서 처리, 실패 시 기존 흐름 폴백)
     fill_intent = req.app_type == "hwp" and detect_live_fill_intent(req.message)
@@ -387,6 +389,10 @@ async def chat_live_stream(req: StreamChatRequest):
         if not actions:
             yield f"data: {json.dumps({'type': 'done', 'summary': '실행할 작업 없음'}, ensure_ascii=False)}\n\n"
             return
+
+        # 새 표 채움 병합 — 허구 block_id 실행 차단 (승인 패널에도 병합안이 보이게)
+        if req.app_type == "hwp":
+            actions = merge_new_table_fills(actions)
 
         # PPT: add_slide 먼저 / HWP: block_id 역순 (좌표 밀림 방지)
         if req.app_type == "ppt":
