@@ -32,6 +32,7 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
   const [pageRange, setPageRange] = useState("");
   const [selectedModel, setSelectedModel] = useState("auto");
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [fillLora, setFillLora] = useState<{ name: string } | null>(null);
   const [status, setStatus] = useState<RunStatus>("idle");
   const [logs, setLogs] = useState<string[]>([]);
   const [resultText, setResultText] = useState("");
@@ -48,6 +49,13 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
         // 로컬(공문 LoRA 포함) + API 모두 노출 — 로컬 모델을 제외하면
         // API 키 없는 교사는 '자동'만 쓸 수 있어 LoRA가 영영 안 걸렸음.
         setModels(data);
+      })
+      .catch(() => {});
+    // 채움 어댑터는 /api/models에 없다(베이스 모델 목록임) — 별도 조회.
+    fetch(apiUrl("/api/loras"))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: { name: string; fill_active?: boolean }[]) => {
+        setFillLora(Array.isArray(d) ? d.find((l) => l.fill_active) ?? null : null);
       })
       .catch(() => {});
   }, []);
@@ -335,6 +343,14 @@ export function FormAssist({ onBack }: { onBack: () => void }) {
             </select>
             <ChevronDown size={14} className="absolute right-2.5 top-2.5 text-gray-400 pointer-events-none" />
           </div>
+          {/* 이 드롭다운은 '베이스 모델'만 고른다. 표 채움 품질을 좌우하는 건
+              자동 적용되는 채움 LoRA인데 목록에 안 떠서 적용 여부를 알 수 없었다. */}
+          {fillLora && (
+            <p className="mt-2 text-[11px] text-gray-500">
+              채움 어댑터 <span className="font-medium text-gray-700">{fillLora.name}</span> 자동 적용
+              <span className="text-gray-400"> — 로컬 모델 선택 시 표 채우기에 사용됩니다</span>
+            </p>
+          )}
         </div>
 
         {/* 실행 */}

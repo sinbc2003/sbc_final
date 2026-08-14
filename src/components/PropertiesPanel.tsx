@@ -142,7 +142,10 @@ function ModelSelector({ value, onChange }: { value: string; onChange: (v: strin
    자유 텍스트라 오타 시 조용히 베이스로 실행되던 필드. 현재 배선은 서버가
    프리로드한 어댑터 1개를 켜고 끄는 방식이라, 선택지를 '기본 / 사용 안 함'으로
    두고 실제로 적용되는 어댑터가 무엇인지 함께 보여준다. */
-interface LoraInfo { name: string; file: string; size_mb: number; active: boolean }
+interface LoraInfo {
+  name: string; file: string; size_mb: number; active: boolean;
+  fill_active?: boolean; role?: string;
+}
 
 function LoraSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [loras, setLoras] = useState<LoraInfo[]>([]);
@@ -158,6 +161,9 @@ function LoraSelector({ value, onChange }: { value: string; onChange: (v: string
   const base = "w-full text-[12px] rounded bg-gray-50 border border-gray-200 text-gray-700 " +
     "focus:outline-none focus:border-tf-accent focus:ring-1 focus:ring-tf-accent/30 transition-all";
   const active = loras.find(l => l.active);
+  // 채움 어댑터는 이 드롭다운의 선택 대상이 아니다(표 채우기에서 자동 적용).
+  // 안 보이면 "안 걸린 것"으로 오해하므로 상태만 별도로 표시한다.
+  const fillActive = loras.find(l => l.fill_active);
   const isOff = ["none", "off", "없음", "-"].includes((value ?? "").trim().toLowerCase());
   // 설정 기본/사용안함 외의 값(기존 워크플로우)은 선택지로 남겨 조용히 바뀌지 않게 한다
   const custom = value && !isOff ? value : "";
@@ -181,6 +187,13 @@ function LoraSelector({ value, onChange }: { value: string; onChange: (v: string
                 설치된 어댑터 {loras.length}개 — 설정에서 기본 어댑터를 지정해야 적용됩니다
               </p>
             : <p className="text-[10px] text-gray-400">설치된 LoRA 어댑터 없음 — 베이스 모델로 실행</p>
+      )}
+      {loaded && fillActive && (
+        <p className="text-[10px] text-gray-400">
+          채움 어댑터: <span className="text-gray-600">{fillActive.name}</span>
+          {fillActive.size_mb ? ` (${fillActive.size_mb}MB)` : ""}
+          <span className="text-gray-400"> — 표 채우기에서 자동 적용</span>
+        </p>
       )}
     </div>
   );

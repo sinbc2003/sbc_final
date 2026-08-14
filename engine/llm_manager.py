@@ -758,6 +758,10 @@ class LLMManager:
         문제 때문에 만들었다. active = 설정 기본 어댑터(local_lora)와 일치하는 것.
         """
         active = (self._config.get("local_lora") or "").strip().lower()
+        # 채움 어댑터(fill_lora)는 사용자가 고르는 값이 아니라 채움 요청에서 코드가
+        # 자동으로 켜는 id1이다(§42f). UI에 전혀 안 보여 "적용되고 있는지" 확인할
+        # 길이 없었으므로 role/fill_active로 함께 알린다.
+        fill = (self._config.get("fill_lora") or "").strip().lower()
         seen: set[str] = set()
         result: list[dict[str, Any]] = []
         for d in self._lora_dirs():
@@ -772,13 +776,18 @@ class LLMManager:
                     size_mb = round(f.stat().st_size / 1024 / 1024)
                 except OSError:
                     size_mb = 0
+                stem = f.stem.lower()
+                is_gen = bool(active and (active in stem or active in str(f).lower()))
+                is_fill = bool(fill and (fill in stem or fill in str(f).lower()))
                 result.append({
                     "name": f.stem,
                     "file": f.name,
                     "path": str(f),
                     "size_mb": size_mb,
-                    "active": bool(active and (active in f.stem.lower()
-                                               or active in str(f).lower())),
+                    "active": is_gen,
+                    "fill_active": is_fill,
+                    # 생성=공문 어댑터(요청별 scale 1.0), 채움=표 채우기 전용
+                    "role": "채움" if is_fill else ("생성" if is_gen else ""),
                 })
         return result
 
