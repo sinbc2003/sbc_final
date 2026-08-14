@@ -1,6 +1,6 @@
 # 로컬 LLM 전환 설계 — 핸드오프 문서
 
-> 작성: 2026-07-02 / **최종 갱신: 2026-08-10** / 프로젝트: TeacherFlow
+> 작성: 2026-07-02 / **최종 갱신: 2026-08-14** / 프로젝트: TeacherFlow
 > 작업 경로(현재): `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop)
 > 목적: 이 문서만 읽고 새 세션에서 바로 이어서 작업할 수 있게 정리.
 
@@ -27,41 +27,20 @@
 > - 어댑터 A/B는 **고정 프로토콜만**(2어댑터 스위칭 불안정 §41h). 검증 서버 = b10338 vulkan + `--reasoning off --reasoning-budget 0 --jinja` + (E4B 어댑터 시) `chat_template_kwargs:{"enable_thinking":false}`.
 > - 워커 llama-server가 GPU 점유 시: `POST 127.0.0.1:9090/worker {"action":"stop"}` (X-Api-Key: sbc-local-key).
 > - 견본혼합·서명·에코·타입 가드는 engine/form_assist.py §42k~l — 벤치 만들 때 제품 필터(`_is_fillable`+`_is_signature_field`) 반드시 미러링.
->
-> ### 환경
-> - 작업 경로: `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop RTX5080)
-> - 학습 venv `D:\lora_train\venv`(Py3.10) · 데이터 `D:\lora_data`(dataset_fill_v13=청크 2,124) · 어댑터 `D:\models\loras` · 평가 `fill_eval_unseen`+s3001/s3002+`instr_freeform.json`(자유문장) · 벤치 `scripts/lora/fill_harness_bench.py`
-> - 텔레그램 보고: `E:\sbc_lab\tf_build\v10_chain\send_tg.py` (--msg/--doc)
-> - 디스크: D: 여유 7.8GB(v1~v8 원본 정리됨) · 대용량은 E:
-
----|---|
-> | 표 감지 | header_row_count 병리 수정 **+134%** · 부분슬롯(괄호형 `( )`·콜론말미형) · **중첩표 왕복 99.8%** |
-> | 승인 UX | 라이브 액션·채움 **둘 다** 검토 패널 경유(§33·§33b) + **피드백 로그**(사용자 수정값=SFT 골드, §36) |
-> | LoRA | v9 멀티태스크(공문+채움) 채택 · **E4B 탈락**(엄정 31% vs 11%, §41·§41b) |
-> | 공문 품질 | 관련일자·담당자 실명 placeholder 방어(§37·§37b) — kordoc lint **지적 0건 통과** |
-> | 외부 흡수 | **kordoc 4.7.2 고정**(`engine/kordoc.py`) + 신버전 자동 감지·격리 회귀검증(§40) |
-> | 정찰 | SchoolBoard = 동일 아키텍처·**클라우드 LLM**. 배울 점 = 연산 가드·적용 전 감사(§39) |
-> | 채움 | 루프 방어 `maxItems`·중복 첫값 채택·필드 수 청킹 → 응답 실패 **2/8→0/8**(§41c) |
-> | **데이터** | **오염 3종 발견·제거**(목록밖 17%·구분불가 42%·라벨모순 8% → **전부 0%**, §41d) |
->
-> ### ⚠️ 반드시 지킬 것 (반복 실측된 함정)
-> - **검증 서버 기동**: vulkan 빌드 + `--reasoning off` **+ `--reasoning-budget 0`** + `--jinja`. CUDA 구빌드(`llama_cpp/bin/`)는 reasoning off가 안 먹어 **사고 토큰이 응답을 삼킨다**(content 0자).
-> - **A/B는 어댑터 2개 프리로드**(`--lora-scaled a.gguf:0.0 --lora-scaled b.gguf:0.0`) 후 **요청별 `lora:[{id,scale}]`** 전환 — 서버 재시작 불필요.
-> - **채움 정확도는 엄정 지표로만 말한다**: 전 문서 gold 필드가 분모, 파싱 실패는 0점. 과거 "70%"는 실패를 분모에서 뺀 값이라 **같은 기준이 아니다**. 엄정 기준 현행 **36%**(소·중형 양식만 80%).
-> - **모델 크기 비교는 양자화 등급을 맞춰라** — E4B Q3 vs E2B Q4로 재던 실수(§41b). 필요 시 `convert_hf_to_gguf.py` → `llama-quantize`로 등급 맞춤(E4B Q4_K_M은 `E:\sbc_lab\gguf_work\`에 보존).
-> - **데이터 정화 > 학습 기법** — v7 HTML표, v9 오염 3종. **3회 반복 확인된 최대 레버**.
+> - **검증 서버는 vulkan 빌드로**. CUDA 구빌드(`llama_cpp/bin/`)는 `--reasoning off`가 안 먹어 **사고 토큰이 응답을 삼킨다**(content 0자).
+> - **채움 정확도는 엄정 지표로만 말한다**: 전 문서 gold 필드가 분모, 파싱 실패는 0점. 실패를 분모에서 빼면 같은 기준이 아니다.
+> - **모델 크기 비교는 양자화 등급을 맞춰라** — E4B Q3 vs E2B Q4로 재던 실수(§41b). 필요 시 `convert_hf_to_gguf.py` → `llama-quantize`(E4B Q4_K_M은 `E:\sbc_lab\gguf_work\`에 보존).
+> - **데이터 정화 > 학습 기법** — v7 HTML표, v9 오염 3종, v11 분포 불일치. **반복 확인된 최대 레버**.
 > - frozen 빌드: 엔진 재빌드 후 **tauri build 재실행 필수**, 검증은 `/api/health`의 **nodes 수 대조(31)**, `PYTHONUTF8=1`, AV(V3) 예외 등록.
 > - 작업 후 **llama-server 종료로 VRAM 반납**(공유 GPU).
 >
-> ### 다음 후보 (상세 우선순위는 문서 하단 "⏭️ 다음 트랙")
-> ① **v10 재학습**(위) ② **배포 마찰 제거 — 코드 서명이 최대 병목** ③ 큰 문서 처리(스키마 강제 사실 추출 + `kordoc --format chunks`) ④ SchoolBoard 가드 채택(confirmedLabel·fill_column) ⑤ 편집 액션 학습쌍(block_id 오선택 = 유일 미검증 축)
->
 > ### 환경
-> - 작업 경로: `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop, RTX5080 16GB)
+> - 작업 경로: `C:\Users\PC\Desktop\inline structure - 복사본\00_sbc_final\00_sbc_final` (Desktop RTX5080 16GB)
 > - Git: `github.com/sinbc2003/sbc_final` (main). `data/fixtures/`·모델·gguf는 .gitignore.
 > - 엔진 `PYTHONUTF8=1 python -m uvicorn engine.server:app --port 8407` / 프론트 `ENGINE_PORT=8407 npx vite`
-> - 학습 venv `D:\lora_train\venv` · 데이터 `D:\lora_data` · 모델 `D:\models` · 대용량 산출물은 **E:**(여유 330GB)
-> - **디스크 주의**: C: 여유 2.4GB / D: 10GB — 빌드 전 확인. 정리 후보: `D:\lora_train\out`의 폐기 어댑터 v3~v7(각 0.71GB, GGUF는 이미 변환됨).
+> - 학습 venv `D:\lora_train\venv`(Py3.10) · 데이터 `D:\lora_data`(dataset_fill_v13=청크 2,124) · 어댑터 `D:\models\loras` · 평가 `fill_eval_unseen`+s3001/s3002+`instr_freeform.json`(자유문장) · 벤치 `scripts/lora/fill_harness_bench.py`
+> - 텔레그램 보고: `E:\sbc_lab\tf_build\v10_chain\send_tg.py` (--msg/--doc)
+> - **디스크 주의**(2026-08-14 실측): C: 6.9GB · **D: 7.7GB** — v15 데이터 확장/빌드 전 확인. 정리 후보 = `D:\lora_train\out`의 폐기 어댑터(GGUF 변환 완료분). 대용량은 **E:**(여유 281GB).
 
 ---
 
@@ -1449,13 +1428,6 @@ package.json을 teacherflow 원본으로 복원(lock 루트 기준, dev/build/ta
 - 실물 재검증(견본행 표): 5~15행 완벽 · 상단 1~4행 혼선 여전(순번→날짜 복사 패턴) — 하네스+일반학습 한계 확정, **v15 견본행 교체 교육 데이터**가 유일 잔여 처방.
 - 교훈: 2ep 수렴이 정형이 아니라 **자유문장 견고성**으로 전환됨 — 다양화 데이터(519건)의 가치가 수렴에서 발현.
 
-### ⏭️ 다음 트랙 (2026-08-10 갱신
-### ⏭️ 다음 트랙 (2026-08-10 갱신
-### ⏭️ 다음 트랙 (2026-08-10 갱신
-### ⏭️ 다음 트랙 (2026-08-10 갱신
-### ⏭️ 다음 트랙 (2026-08-10 갱신
-### ⏭️ 다음 트랙 (2026-08-10 갱신
-### ⏭️ 다음 트랙 (2026-08-10 갱신
 ### ⏭️ 다음 트랙 (2026-08-10 갱신 — §32~§40 반영)
 
 **완료된 이전 계획**: ~~표 하드벤치·감지 고도화~~(§32 ①②, 감지 +134%·부분슬롯·중첩표 99.8%) · ~~승인 UX~~(§33·§33b, 액션+채움 둘 다 검토 패널) · ~~LoRA 증류~~(§35b v9 채택, 채움 3배) · ~~피드백 루프~~(§36) · ~~kordoc 흡수~~(§40).
