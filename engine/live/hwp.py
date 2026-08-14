@@ -64,6 +64,7 @@ class HwpMixin:
             "save": ("save", {}),
             "save_as": ("save_as", {"path": p.get("path", ""), "format": p.get("format", "HWPX")}),
             "create_table": ("create_table", {"rows": p.get("rows", 2), "cols": p.get("cols", 2), "data": p.get("data")}),
+            "clear_document": ("clear_document", {}),
             # blockId 기반 신규 액션들은 그대로 통과
             "replace_cell_content": ("replace_cell_content", {"block_id": p.get("block_id", ""), "new_text": p.get("new_text", "")}),
             "delete_cell_content": ("delete_cell_content", {"block_id": p.get("block_id", "")}),

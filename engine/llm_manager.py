@@ -470,6 +470,27 @@ class LLMManager:
             err = data.get("error", {})
             msg = err.get("message", "") if isinstance(err, dict) else str(err)
             if "context" in msg.lower() or "exceed" in msg.lower():
+                # 컨텍스트 초과 → 히스토리 축소 재시도. 라이브 채팅에서 문서
+                # CVD+결과로그 히스토리가 한도를 넘어 "오류"가 연발로 고정되던
+                # 실측(15.7K/8K) 대응 — 실패 고정 대신 오래된 대화를 버리고 살린다.
+                # (system=스킬+문서는 보존 — 자르면 액션 계약이 깨짐.)
+                import logging as _logging
+                sys_msgs = [m for m in messages if m.get("role") == "system"]
+                rest = [m for m in messages if m.get("role") != "system"]
+                for keep in (4, 1):
+                    if len(rest) <= keep:
+                        continue
+                    messages = sys_msgs + rest[-keep:]
+                    resp = _post(with_schema=bool(json_schema))
+                    data = resp.json()
+                    if resp.status_code == 200 and not data.get("error"):
+                        _logging.getLogger(__name__).info(
+                            f"컨텍스트 초과 → 히스토리 {len(rest)}→{keep}개 축소 재시도 성공")
+                        break
+        if resp.status_code != 200 or data.get("error"):
+            err = data.get("error", {})
+            msg = err.get("message", "") if isinstance(err, dict) else str(err)
+            if "context" in msg.lower() or "exceed" in msg.lower():
                 model_name = self._local_model or "로컬 모델"
                 raise RuntimeError(
                     f"컨텍스트 크기 초과: {msg}. "

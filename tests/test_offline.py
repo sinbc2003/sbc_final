@@ -62,7 +62,7 @@ def t_parse_fill():
 # ── 3. envelope 스키마/파서 (3앱) ──
 def t_envelope():
     print("[envelope]")
-    check("hwp 23종", len(build_live_envelope_schema("hwp")["properties"]["액션"]["items"]["properties"]["action"]["enum"]) == len(LIVE_HWP_ACTIONS) == 23)
+    check("hwp 24종", len(build_live_envelope_schema("hwp")["properties"]["액션"]["items"]["properties"]["action"]["enum"]) == len(LIVE_HWP_ACTIONS) == 24)
     check("excel 17종", len(LIVE_EXCEL_ACTIONS) == 17 and build_live_envelope_schema("excel"))
     check("ppt 9종", len(LIVE_PPT_ACTIONS) == 9 and build_live_envelope_schema("ppt"))
     check("word None", build_live_envelope_schema("word") is None)
@@ -750,13 +750,39 @@ def t_merge_table_fills():
     check("create 없음 무변형", merge_new_table_fills(list(plain)) == plain)
 
 
+def t_live_history():
+    """히스토리 다이어트 + clear_document 카탈로그 (§43b, 컨텍스트 초과 실측 대응)."""
+    print("[trim_live_history / clear_document]")
+    from engine.chat.live_chat import (
+        trim_live_history, LIVE_HWP_ACTIONS, build_live_envelope_schema,
+    )
+
+    hist = [
+        {"role": "user", "content": "표 만들어줘"},
+        {"role": "assistant", "content": "만들었습니다.\n" + "\n".join(
+            f"✓ replace_cell_content: 셀 내용 교체 완료" for _ in range(36))},
+        {"role": "user", "content": "다시 " + "가" * 3000},
+    ]
+    out = trim_live_history(hist)
+    check("결과 로그 줄 제거", "✓" not in out[1]["content"])
+    check("본문 보존", out[1]["content"].startswith("만들었습니다."))
+    check("길이 캡", len(out[2]["content"]) <= 1220 and "생략" in out[2]["content"])
+    check("역할 보존·개수 유지", [m["role"] for m in out] == ["user", "assistant", "user"])
+    check("최근 10개 제한", len(trim_live_history([{"role": "user", "content": "x"}] * 20)) == 10)
+
+    check("clear_document 카탈로그 등재", "clear_document" in LIVE_HWP_ACTIONS)
+    schema = build_live_envelope_schema("hwp")
+    enum = schema["properties"]["액션"]["items"]["properties"]["action"]["enum"]
+    check("clear_document GBNF enum 포함", "clear_document" in enum)
+
+
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
                t_grid_roundtrip, t_partial_slots, t_related_date, t_feedback_log,
                t_verify_retry,
                t_chunking, t_cancel, t_workflow_envelope,
                t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift,
-               t_table_spec, t_merge_table_fills):
+               t_table_spec, t_merge_table_fills, t_live_history):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:

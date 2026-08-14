@@ -390,6 +390,26 @@ class HwpEditor:
         except Exception as e:
             return {"isSuccess": False, "message": str(e)}
 
+    def clear_document(self) -> dict:
+        """문서 전체 내용 삭제 — "다 지우고 다시" 요청용 (§43b).
+
+        이 액션이 없으면 모델이 블록별 삭제를 지어내거나 그냥 표를 덧붙여
+        문서가 누적으로 지저분해진다(실사용 관찰). 전체선택→삭제 한 방.
+        """
+        try:
+            self.hwp.MoveDocBegin()
+            self.hwp.SelectAll()
+            if hasattr(self.hwp, "Delete"):
+                self.hwp.Delete()
+            else:
+                self.hwp.HAction.Run("Delete")
+            self._needs_rescan = True
+            if self.bm is not None:
+                self.bm.blocks.clear()
+            return {"isSuccess": True, "message": "문서 전체 내용 삭제 완료"}
+        except Exception as e:
+            return {"isSuccess": False, "message": str(e)}
+
     def style_cell(self, block_id: str, bg_color: str = None,
                    align: str = None, bold: bool = None,
                    font_size: float = None, text_color: str = None) -> dict:

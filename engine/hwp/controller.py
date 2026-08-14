@@ -405,6 +405,7 @@ class HwpController:
                         down=int(kwargs.get("down", 0))),
                     "set_table_col_width": lambda: editor.set_table_col_width(
                         kwargs["block_id"], kwargs["widths"]),
+                    "clear_document": lambda: editor.clear_document(),
                     "save": lambda: editor.save(),
                     "save_as": lambda: editor.save_as(
                         kwargs["path"], kwargs.get("format", "HWPX")),

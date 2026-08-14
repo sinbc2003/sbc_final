@@ -18,8 +18,8 @@ LIVE_HWP_ACTIONS = [
     "replace_cell_content", "delete_cell_content", "replace_paragraph",
     "append_paragraph", "replace_table_row", "append_table_row",
     "apply_para_style", "insert_text", "find_and_replace_all", "set_field",
-    "create_table", "style_table_row", "style_table_cell", "set_table_widths",
-    "format_text", "style_cell", "style_row", "merge_cells",
+    "create_table", "clear_document", "style_table_row", "style_table_cell",
+    "set_table_widths", "format_text", "style_cell", "style_row", "merge_cells",
     "set_table_col_width", "move_to_start", "move_to_end", "save", "save_as",
 ]
 
@@ -118,6 +118,27 @@ def parse_envelope_response(text: str) -> tuple[str, list[dict] | None] | None:
                  if isinstance(a, dict) and a.get("action")]
         actions = valid or None
     return reply, actions
+
+
+def trim_live_history(history: list[dict], max_msgs: int = 10,
+                      max_chars: int = 1200) -> list[dict]:
+    """라이브 채팅 히스토리 다이어트 — 컨텍스트 폭주 방지.
+
+    UI가 실행 결과 로그(✓/✗ 줄 수십 개)를 assistant 메시지에 누적하고 그걸
+    그대로 히스토리로 재전송 → 문서 CVD가 커진 상태에서 8K 컨텍스트 초과
+    (실측 15.7K 토큰, "오류" 연발). 결과 로그는 대화 맥락이 아니므로 제거하고
+    메시지당 길이도 캡. (2차 방어는 llm_manager의 컨텍스트 초과 축소 재시도.)
+    """
+    out = []
+    for h in history[-max_msgs:]:
+        if "role" not in h or "content" not in h:
+            continue
+        c = "\n".join(l for l in str(h["content"]).splitlines()
+                      if not re.match(r"^[✓✗⏳]\s", l)).strip()
+        if len(c) > max_chars:
+            c = c[:max_chars] + " …(생략)"
+        out.append({"role": h["role"], "content": c})
+    return out
 
 
 def merge_new_table_fills(actions: list[dict] | None) -> list[dict] | None:
@@ -391,9 +412,7 @@ def prepare_live_chat_messages(
         skill_prompt += build_envelope_note(app_type)
 
     messages = [{"role": "system", "content": skill_prompt}]
-    for h in history[-10:]:
-        if "role" in h and "content" in h:
-            messages.append({"role": h["role"], "content": h["content"]})
+    messages.extend(trim_live_history(history))
     messages.append({"role": "user", "content": message})
     return messages, provider, model_name
 
@@ -449,9 +468,7 @@ def handle_live_chat(
 
     # 3. LLM 호출
     messages = [{"role": "system", "content": skill_prompt}]
-    for h in history[-10:]:
-        if "role" in h and "content" in h:
-            messages.append({"role": h["role"], "content": h["content"]})
+    messages.extend(trim_live_history(history))
     messages.append({"role": "user", "content": message})
 
     try:
