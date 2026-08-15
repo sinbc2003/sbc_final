@@ -120,6 +120,30 @@ def parse_envelope_response(text: str) -> tuple[str, list[dict] | None] | None:
     return reply, actions
 
 
+def assemble_live_prompt(template: str, doc_content: str,
+                         design_content: str | None = None,
+                         envelope_note: str = "") -> str:
+    """라이브 시스템 프롬프트 조립 — 고정부 앞 · 가변부(문서 상태) 맨 뒤 (§43d).
+
+    {document_content}가 스킬 상단에 있으면 문서가 바뀔 때마다 llama.cpp
+    프리픽스 캐시가 통째로 무효 → 매 턴 스킬 전체를 재프리필(구형 CPU에서
+    턴당 분 단위 낭비). 고정부(스킬 본문·디자인·응답형식)를 앞에, 문서를
+    맨 뒤에 둬 턴 간 캐시 재사용을 구조적으로 보장한다. 실측(A/B)은 §43d.
+    """
+    # 구 템플릿의 플레이스홀더는 위치 안내로 대체(신 템플릿엔 없음 — 무해)
+    body = template.replace(
+        "{document_content}",
+        "(문서 상태는 이 프롬프트 맨 아래 '## 현재 문서 상태' 참조)")
+    if design_content:
+        body += (f"\n\n---\n\n{design_content}\n\n"
+                 "위 디자인 스타일을 반드시 적용하라. 표, 서식, 색상 등 "
+                 "모든 디자인 액션에 이 스타일 규칙을 따라라.")
+    if envelope_note:
+        body += envelope_note
+    body += f"\n\n## 현재 문서 상태\n\n{doc_content}"
+    return body
+
+
 def trim_live_history(history: list[dict], max_msgs: int = 10,
                       max_chars: int = 1200) -> list[dict]:
     """라이브 채팅 히스토리 다이어트 — 컨텍스트 폭주 방지.
@@ -368,7 +392,12 @@ def _read_with_cvd(app_type: str, live_controller) -> str:
             _logger.info(f"_read_with_cvd: {block_count}개 블록 스캔({scan_mode}), CVD {len(cvd_text) if cvd_text else 0}자")
 
             if cvd_text:
-                doc_text += f"\n\n=== 블록 ID 매핑 (block_id 기반 편집용) ===\n{cvd_text}"
+                # §43d 프롬프트 다이어트: CVD에 전체 텍스트가 블록별로 이미 있어
+                # 원문 스캔을 함께 실으면 문서가 2번 동봉된다(실측 — 프롬프트
+                # 비만의 주범, 15.7K 초과 사건의 절반). 용지 정보만 유지(CVD에
+                # 없는 레이아웃)하고 본문은 CVD로 일원화.
+                return (parts[0] if parts else "") + \
+                    f"\n\n=== 블록 ID 매핑 (block_id 기반 편집용) ===\n{cvd_text}"
 
             return doc_text
         except Exception as e:
@@ -399,17 +428,19 @@ def prepare_live_chat_messages(
 
     template = skill_path.read_text(encoding="utf-8")
     doc_content = _read_with_cvd(app_type, live_controller)
-    skill_prompt = template.replace("{document_content}", doc_content)
 
+    design_content = None
     if design_skill and design_skill != "default":
         design_path = Path(__file__).parent.parent / "skills" / "design" / f"{design_skill}.md"
         if design_path.exists():
             design_content = design_path.read_text(encoding="utf-8")
-            skill_prompt += f"\n\n---\n\n{design_content}\n\n위 디자인 스타일을 반드시 적용하라. 표, 서식, 색상 등 모든 디자인 액션에 이 스타일 규칙을 따라라."
 
     # 로컬 모델: envelope 형식 노트 (실제 강제는 GBNF json_schema가 담당)
+    envelope_note = ""
     if provider == "local" and app_type in _LIVE_ACTION_CATALOG:
-        skill_prompt += build_envelope_note(app_type)
+        envelope_note = build_envelope_note(app_type)
+
+    skill_prompt = assemble_live_prompt(template, doc_content, design_content, envelope_note)
 
     messages = [{"role": "system", "content": skill_prompt}]
     messages.extend(trim_live_history(history))
@@ -450,21 +481,24 @@ def handle_live_chat(
 
     # 2. 문서 내용 읽기
     doc_content = _read_with_cvd(app_type, live_controller)
-    skill_prompt = template.replace("{document_content}", doc_content)
 
-    # 2.5 디자인 스킬 프롬프트 주입
+    # 2.5 디자인 스킬 프롬프트
+    design_content = None
     if design_skill and design_skill != "default":
         design_path = Path(__file__).parent.parent / "skills" / "design" / f"{design_skill}.md"
         if design_path.exists():
             design_content = design_path.read_text(encoding="utf-8")
-            skill_prompt += f"\n\n---\n\n{design_content}\n\n위 디자인 스타일을 반드시 적용하라. 표, 서식, 색상 등 모든 디자인 액션에 이 스타일 규칙을 따라라."
 
     # 2.6 로컬 모델: envelope 형식 노트 + GBNF 스키마 강제 (액션명 오타 원천 차단)
     envelope_schema = None
+    envelope_note = ""
     if provider == "local":
         envelope_schema = build_live_envelope_schema(app_type)
         if envelope_schema:
-            skill_prompt += build_envelope_note(app_type)
+            envelope_note = build_envelope_note(app_type)
+
+    # 고정부 앞·문서 뒤 조립 (§43d — 프리픽스 캐시)
+    skill_prompt = assemble_live_prompt(template, doc_content, design_content, envelope_note)
 
     # 3. LLM 호출
     messages = [{"role": "system", "content": skill_prompt}]

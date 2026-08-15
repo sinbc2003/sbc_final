@@ -776,13 +776,40 @@ def t_live_history():
     check("clear_document GBNF enum 포함", "clear_document" in enum)
 
 
+def t_prompt_diet():
+    """§43d 프롬프트 다이어트 — 고정부 앞·문서 뒤 + 프리픽스 안정성."""
+    print("[assemble_live_prompt]")
+    from pathlib import Path as _P
+    from engine.chat.live_chat import assemble_live_prompt
+
+    tpl = "# 스킬\n규칙들"
+    note = "\n## 응답 형식\nJSON만"
+    a = assemble_live_prompt(tpl, "문서A 내용", "디자인 규칙", note)
+    b = assemble_live_prompt(tpl, "문서B가 훨씬 더 길다 " * 50, "디자인 규칙", note)
+    # 문서가 맨 뒤: '## 현재 문서 상태'가 마지막 섹션이고 그 뒤에 문서만
+    check("문서가 맨 뒤", a.rstrip().endswith("문서A 내용")
+          and a.rfind("## 현재 문서 상태") > a.rfind("## 응답 형식") > a.find("디자인 규칙") > a.find("# 스킬"))
+    # 프리픽스 캐시 보장: 문서만 다르면 문서 마커까지의 프리픽스가 동일
+    k = a.rfind("## 현재 문서 상태")
+    check("고정 프리픽스 동일(캐시 보장)", b[:k] == a[:k])
+    # 구 템플릿({document_content} 잔존) 하위호환: 위치 안내로 대체 + 문서는 뒤
+    legacy = assemble_live_prompt("# 스킬\n\n{document_content}\n\n규칙", "실문서")
+    check("구 플레이스홀더 대체", "{document_content}" not in legacy
+          and legacy.rstrip().endswith("실문서"))
+    # 신 템플릿 4종에 플레이스홀더가 더는 없음
+    sk = _P(ROOT) / "engine" / "skills"
+    check("템플릿 4종 플레이스홀더 제거", all(
+        "{document_content}" not in (sk / f).read_text(encoding="utf-8")
+        for f in ("hwp.md", "excel.md", "ppt.md", "word.md")))
+
+
 def main():
     for fn in (t_placeholder, t_parse_fill, t_envelope, t_calibrate, t_body_blanks,
                t_grid_roundtrip, t_partial_slots, t_related_date, t_feedback_log,
                t_verify_retry,
                t_chunking, t_cancel, t_workflow_envelope,
                t_port_repair, t_presets, t_json_recovery, t_default_nodes_drift,
-               t_table_spec, t_merge_table_fills, t_live_history):
+               t_table_spec, t_merge_table_fills, t_live_history, t_prompt_diet):
         fn()
     print(f"\n=== 오프라인: {len(PASS)} PASS, {len(FAIL)} FAIL ===")
     if FAIL:
