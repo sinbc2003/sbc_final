@@ -587,18 +587,22 @@ def _is_placeholder(text: str) -> bool:
     (빈 셀은 is_empty로 이미 잡히므로, 여기서 놓쳐도 실제 빈칸 누락은 없다.)
     """
     s = (text or "").strip()
-    if not s or len(s) > 12:
+    if not s or len(s) > 30:
         return False
-    if s in _PLACEHOLDER_WORDS:  # 전체 일치만 (부분문자열 오인 방지)
-        return True
+    if len(s) <= 12:
+        if s in _PLACEHOLDER_WORDS:  # 전체 일치만 (부분문자열 오인 방지)
+            return True
+        core12 = s.replace(" ", "")
+        # 자리표시 글자로만 구성 + 길이 2+ (단일 ○/O 같은 OX 데이터 오인 방지)
+        if len(core12) >= 2 and all(ch in _PLACEHOLDER_CHARS for ch in core12):
+            return True
     core = s.replace(" ", "")
-    # 자리표시 글자로만 구성 + 길이 2+ (단일 ○/O 같은 OX 데이터 오인 방지)
-    if len(core) >= 2 and all(ch in _PLACEHOLDER_CHARS for ch in core):
-        return True
     # 견본혼합형(§42l, 백로그 §32): "대전○○초"·"정○○"·"(월). (일).(요일)"처럼
     # 실문자와 ○류가 섞인 예시 값 = 채워야 할 견본 행. ○류 2자 이상이면 견본
     # (OX 데이터는 셀당 1자라 안전). 길이 상한 30자.
-    return len(s) <= 30 and (
+    # ⚠ v15 데이터 검증 중 발견: 종전엔 상단 `len(s) > 12` 조기 반환이 이 분기를
+    # 13~30자 구간에서 죽여놨었다("김○○13.03.11(남)" 15자 견본 미감지) — 해소.
+    return (
         sum(1 for ch in core if ch in "○◯〇") >= 2  # □■ 제외(체크박스 데이터 보호)
         # 날짜 스캐폴드 "(월). (일).(요일)": 셀 전체가 괄호·점·월일요뿐일 때만
         # ("날짜(요일)" 같은 라벨 오인 방지 — v4 실측 FP)

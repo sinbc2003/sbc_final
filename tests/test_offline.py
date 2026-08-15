@@ -37,7 +37,10 @@ def t_placeholder():
     cases = [("홍길동", False), ("3학년 2반", False),
              ("학생이 과제를 꼼꼼히 기입하였음", False), ("학생이 기입하였음", False),
              ("성적을 기입", False), ("예시", True), ("미기재", True), ("기입란", True),
-             ("○○○", True), ("___", True), ("■□", False), ("O", False), ("해당없음", False)]
+             ("○○○", True), ("___", True), ("■□", False), ("O", False), ("해당없음", False),
+             # 견본혼합 13~30자 — 종전 len>12 조기 반환이 죽여놨던 분기 (v15 검증 중 발견)
+             ("김○○13.03.11(남)", True), ("대전○○초등학교 3학년 김○○", True),
+             ("서른자넘는아주긴셀텍스트는견본이어도안잡는다○○보호용테스트문장임", False)]
     for t, want in cases:
         check(f"_is_placeholder({t!r})={want}", fa._is_placeholder(t) == want)
     check("_is_fillable 실데이터 보호",
